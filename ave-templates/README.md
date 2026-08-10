@@ -5,8 +5,8 @@
 ## Authoring model
 
 - `modules/common/` contains lean, single-purpose building blocks.
-- `examples/` contains compile-only compositions that demonstrate how workload profiles should wrap and compose the common core.
-- Consumers are expected to fork or copy this tree, then add workload-specific wrappers beside it rather than editing shared core modules in place.
+- `workloads/postgresql/` contains the production entry point (`avePostgreSql.bicep`) and three internal phase modules. Customers do not edit these files.
+- Customers author only a `.bicepparam` file that references `avePostgreSql.bicep`.
 
 ## Module inventory
 
@@ -49,12 +49,37 @@ Workload-specific profiles should:
 
 ## PostgreSQL workload profile
 
-[workloads/postgresql/](./workloads/postgresql/) provides a thin PostgreSQL composition over the local common modules:
+[workloads/postgresql/](./workloads/postgresql/) provides a complete, single-deployment PostgreSQL workload over the local common modules.
 
-- [avePostgreSqlEnclaveDeployment.bicep](./workloads/postgresql/avePostgreSqlEnclaveDeployment.bicep) creates or references the Mission community, Mission enclave, workload registration, CMK identity, private Key Vault, CMK, private DNS, and Key Vault private endpoint, then emits a frozen Phase A handoff object.
-- [avePostgreSqlEnclaveNetworkFinalization.bicep](./workloads/postgresql/avePostgreSqlEnclaveNetworkFinalization.bicep) creates or references supported Mission community endpoints and enclave connections without mutating Mission-managed VNet or subnet resources, then emits a Phase B foundation handoff object.
-- [avePostgreSqlWorkloadDeployment.bicep](./workloads/postgresql/avePostgreSqlWorkloadDeployment.bicep) creates or references a PostgreSQL Flexible Server in the workload resource group using Entra-only authentication, customer-managed keys, public network disabled delegated-subnet mode, and private DNS.
-- [PostgreSQL workload deployment guide](./workloads/postgresql/README.md) documents prerequisites, parameter construction, defaults, compatibility rules, and example orchestration patterns.
+**Customers deploy one template and author one `.bicepparam` file.** Customers do not write or edit Bicep files and do not run phase deployments independently.
+
+### Entry point
+
+[avePostgreSql.bicep](./workloads/postgresql/avePostgreSql.bicep) is the production subscription-scope entry point. It orchestrates Phase A, Phase B, and Phase C internally through output dependencies, completing the entire supported PostgreSQL deployment in a single ARM deployment.
+
+### Deployment command
+
+```sh
+az deployment sub create \
+  --location <region> \
+  --template-file ave-templates/workloads/postgresql/avePostgreSql.bicep \
+  --parameters ave-templates/workloads/postgresql/examples/<scenario>.bicepparam
+```
+
+### Scenario parameter files
+
+| Scenario | File |
+| --- | --- |
+| Secure new (fully managed) | [examples/postgresql-secure-new.bicepparam](./workloads/postgresql/examples/postgresql-secure-new.bicepparam) |
+| Existing compatible (reference-only) | [examples/postgresql-existing-compatible.bicepparam](./workloads/postgresql/examples/postgresql-existing-compatible.bicepparam) |
+| Existing enclave additive subnet | [examples/postgresql-existing-additive-subnet.bicepparam](./workloads/postgresql/examples/postgresql-existing-additive-subnet.bicepparam) |
+
+### Internal modules (not customer deployment targets)
+
+- [avePostgreSqlEnclaveDeployment.bicep](./workloads/postgresql/avePostgreSqlEnclaveDeployment.bicep) - Phase A: Mission community, enclave, workload, CMK identity, Key Vault, CMK, private DNS, and Key Vault private endpoint.
+- [avePostgreSqlEnclaveNetworkFinalization.bicep](./workloads/postgresql/avePostgreSqlEnclaveNetworkFinalization.bicep) - Phase B: Mission community endpoints and enclave connections.
+- [avePostgreSqlWorkloadDeployment.bicep](./workloads/postgresql/avePostgreSqlWorkloadDeployment.bicep) - Phase C: PostgreSQL Flexible Server.
+- [PostgreSQL workload deployment guide](./workloads/postgresql/README.md) documents prerequisites, parameters, defaults, compatibility rules, and scenario guidance.
 
 ### Secure defaults
 
@@ -83,12 +108,6 @@ Workload-specific profiles should:
 - The CMK role assignment uses a deterministic GUID derived from scope, principal, role, and condition.
 - Those resources intentionally use deterministic create/update semantics rather than separate managed/existing switches.
 
-### Examples
-
-- [postgresql-secure-new-example.bicep](./workloads/postgresql/examples/postgresql-secure-new-example.bicep) shows a fully managed secure-new flow across Phase A, network finalization, and PostgreSQL server deployment.
-- [postgresql-existing-compatible-example.bicep](./workloads/postgresql/examples/postgresql-existing-compatible-example.bicep) shows an existing-compatible flow with reference-only enclave networking and an existing PostgreSQL server contract.
-- [postgresql-existing-additive-subnet-example.bicep](./workloads/postgresql/examples/postgresql-existing-additive-subnet-example.bicep) shows the explicit additive-subnet mode for an existing enclave while still keeping Mission network ownership intact.
-
 ## Prerequisites
 
 - Azure CLI or standalone Bicep CLI with `bicep build` support.
@@ -99,15 +118,18 @@ Workload-specific profiles should:
 Run from `ave-templates/`:
 
 ```powershell
-bicep build .\examples\foundation-example.bicep
-bicep build .\modules\common\missionCommunity.bicep
-bicep build .\modules\common\missionVirtualEnclave.bicep
+# Build the production entry point (builds all three phase modules transitively)
+bicep build .\workloads\postgresql\avePostgreSql.bicep
+
+# Build the three phase modules individually
 bicep build .\workloads\postgresql\avePostgreSqlEnclaveDeployment.bicep
 bicep build .\workloads\postgresql\avePostgreSqlEnclaveNetworkFinalization.bicep
 bicep build .\workloads\postgresql\avePostgreSqlWorkloadDeployment.bicep
-bicep build .\workloads\postgresql\examples\postgresql-secure-new-example.bicep
-bicep build .\workloads\postgresql\examples\postgresql-existing-compatible-example.bicep
-bicep build .\workloads\postgresql\examples\postgresql-existing-additive-subnet-example.bicep
+
+# Validate the three scenario parameter files
+bicep build-params .\workloads\postgresql\examples\postgresql-secure-new.bicepparam
+bicep build-params .\workloads\postgresql\examples\postgresql-existing-compatible.bicepparam
+bicep build-params .\workloads\postgresql\examples\postgresql-existing-additive-subnet.bicepparam
 ```
 
 If `bicep lint` is available in the local CLI build, lint the same entry points.
@@ -115,3 +137,11 @@ If `bicep lint` is available in the local CLI build, lint the same entry points.
 ## Offline and forking guarantee
 
 Every module reference in this tree is a local relative path. Generated artifacts are not meant to be committed. Forks can validate and evolve the tree without external registries or network-dependent module restores, including the PostgreSQL workload profile.
+
+For offline packaging or distribution, include:
+
+- `ave-templates/workloads/postgresql/avePostgreSql.bicep` (production entry point)
+- `ave-templates/workloads/postgresql/examples/*.bicepparam` (scenario parameter files)
+- The complete `ave-templates/` folder (entry point depends on local module paths)
+
+Do not include the compiled `.json` artifacts; regenerate them with `bicep build` in the target environment.

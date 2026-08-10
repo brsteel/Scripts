@@ -1,12 +1,64 @@
 # PostgreSQL workload deployment guide
 
-This folder contains a PostgreSQL workload profile built only from local Bicep modules:
+## Deployment model
 
-- [avePostgreSqlEnclaveDeployment.bicep](./avePostgreSqlEnclaveDeployment.bicep) - Phase A
-- [avePostgreSqlEnclaveNetworkFinalization.bicep](./avePostgreSqlEnclaveNetworkFinalization.bicep) - Phase B
-- [avePostgreSqlWorkloadDeployment.bicep](./avePostgreSqlWorkloadDeployment.bicep) - Phase C
+Customers deploy exactly one template and author exactly one file:
 
-Use a thin orchestration `.bicep` to chain these modules together and pass serialized outputs between stages. Do not treat the Phase A or Phase B handoff objects as independently authored static contracts unless you are intentionally replaying previously captured outputs with the exact current contract shape.
+| File authored by customer | Role |
+| --- | --- |
+| `examples/<scenario>.bicepparam` | Parameter file only — the single file customers create or copy |
+
+| File owned by AVE (do not edit) | Role |
+| --- | --- |
+| [avePostgreSql.bicep](./avePostgreSql.bicep) | Production entry point — subscription-scope template that orchestrates Phase A → Phase B → Phase C through output dependencies |
+| [avePostgreSqlEnclaveDeployment.bicep](./avePostgreSqlEnclaveDeployment.bicep) | Phase A internal module |
+| [avePostgreSqlEnclaveNetworkFinalization.bicep](./avePostgreSqlEnclaveNetworkFinalization.bicep) | Phase B internal module |
+| [avePostgreSqlWorkloadDeployment.bicep](./avePostgreSqlWorkloadDeployment.bicep) | Phase C internal module |
+
+**Customers do not edit Bicep files and do not run phase deployments independently.**
+
+## Deployment command
+
+```sh
+az deployment sub create \
+  --location <region> \
+  --template-file ave-templates/workloads/postgresql/avePostgreSql.bicep \
+  --parameters ave-templates/workloads/postgresql/examples/<scenario>.bicepparam
+```
+
+## Scenario parameter files
+
+| Scenario | Parameter file | Description |
+| --- | --- | --- |
+| Secure new | [examples/postgresql-secure-new.bicepparam](./examples/postgresql-secure-new.bicepparam) | Fully managed community, enclave, workload, foundation, and server |
+| Existing compatible | [examples/postgresql-existing-compatible.bicepparam](./examples/postgresql-existing-compatible.bicepparam) | Existing community and enclave (reference-only), existing server |
+| Existing additive subnet | [examples/postgresql-existing-additive-subnet.bicepparam](./examples/postgresql-existing-additive-subnet.bicepparam) | Existing enclave with new dedicated subnets appended |
+
+Copy the appropriate file, replace every placeholder value, and deploy. Do not copy or modify the `.bicep` source files.
+
+## Required vs. defaulted parameters
+
+### Always required (no default)
+
+- `deploymentPrincipal.objectId`
+- `deploymentPrincipal.principalType`
+- `community` (mode plus required sub-fields)
+- `enclave` (mode plus required sub-fields)
+- `workload` (mode plus required sub-fields)
+- `foundation` (mode plus required sub-fields for each sub-resource)
+- `networkFinalization` (mode plus required sub-fields)
+- `server` (mode plus required sub-fields)
+- managed `enclave.approvalSettings` — all four actions must be declared explicitly on every deployment
+- managed server `version`, `sku.name`, and `administrators`
+
+### Defaulted (can omit)
+
+- `deploymentContext` — defaults to `{}` (inherits ARM deployment location and subscription; no tags)
+- `communityConnectivity` — defaults to `[]`
+- `enableTelemetry` — defaults to `true`
+- All optional sub-fields within each object (see Defaults matrix below)
+
+This folder contains a PostgreSQL workload profile built only from local Bicep modules. Phase A, Phase B, and Phase C are internal implementation details of [avePostgreSql.bicep](./avePostgreSql.bicep) and are not independent customer deployment targets.
 
 ## What this profile does
 
@@ -126,31 +178,21 @@ Practical implication:
 - Mission role assignments and standard Azure RBAC are separate mechanisms.
 - The templates default managed PostgreSQL enclaves to `rbacInheritance = 'Disabled'` and `workloadResourceVisibility = 'Disabled'`, so readers/operators may need explicit assignment even if they can deploy the template.
 
-## How to use the staged orchestration
+## Internal orchestration (reference)
 
-Use one orchestration file that chains outputs:
+[avePostgreSql.bicep](./avePostgreSql.bicep) chains the three phase modules through Bicep output dependencies:
 
-1. Phase A emits `phaseA.outputs.phaseA`
-2. Phase B consumes that and emits `phaseB.outputs.foundation`
-3. Phase C consumes `phaseB.outputs.foundation`
+1. Phase A ([avePostgreSqlEnclaveDeployment.bicep](./avePostgreSqlEnclaveDeployment.bicep)) creates or validates the Mission community, enclave, workload, CMK identity, Key Vault, CMK key, private DNS zones, and Key Vault private endpoint. It emits a `phaseA` handoff object.
+2. Phase B ([avePostgreSqlEnclaveNetworkFinalization.bicep](./avePostgreSqlEnclaveNetworkFinalization.bicep)) consumes the Phase A handoff and creates or references Mission community endpoints and enclave connections. It emits a `foundation` handoff object.
+3. Phase C ([avePostgreSqlWorkloadDeployment.bicep](./avePostgreSqlWorkloadDeployment.bicep)) consumes the Phase B foundation handoff and creates or validates the PostgreSQL Flexible Server.
 
-See:
+This chain is fully automated by the production template. Customers do not invoke phase modules directly.
 
-- [examples/postgresql-secure-new-example.bicep](./examples/postgresql-secure-new-example.bicep)
-- [examples/postgresql-existing-compatible-example.bicep](./examples/postgresql-existing-compatible-example.bicep)
-- [examples/postgresql-existing-additive-subnet-example.bicep](./examples/postgresql-existing-additive-subnet-example.bicep)
+## Parameter guide
 
-Recommended workflow:
+All parameters below are top-level parameters on [avePostgreSql.bicep](./avePostgreSql.bicep). They map directly to the phase module contracts documented here for reference. Customers set these in their `.bicepparam` file.
 
-- author a thin orchestration `.bicep`
-- optionally author a `.bicepparam` file for top-level parameters like location, names, IDs, and tags
-- build the orchestration, not the phase modules in isolation for deployment
-
-## Phase A parameter guide
-
-Module: [avePostgreSqlEnclaveDeployment.bicep](./avePostgreSqlEnclaveDeployment.bicep)
-
-### `deploymentContext`
+## `deploymentContext` parameter
 
 - `subscriptionId` - optional target subscription override
 - `location` - optional deployment location
@@ -514,9 +556,9 @@ foundation: {
 
 Existing examples require resource IDs and expected configuration values. Use [postgresql-existing-compatible-example.bicep](./examples/postgresql-existing-compatible-example.bicep) as the reference shape.
 
-## Phase B parameter guide
+## `networkFinalization` and `communityConnectivity` parameters
 
-Module: [avePostgreSqlEnclaveNetworkFinalization.bicep](./avePostgreSqlEnclaveNetworkFinalization.bicep)
+Module reference: [avePostgreSqlEnclaveNetworkFinalization.bicep](./avePostgreSqlEnclaveNetworkFinalization.bicep)
 
 ### Inputs
 
@@ -607,9 +649,9 @@ Source subnet handling:
 - `PrivateEndpoints` uses the Phase A private-endpoint subnet CIDR
 - specifying both produces a comma-separated CIDR list
 
-## Phase C parameter guide
+## `server` parameter
 
-Module: [avePostgreSqlWorkloadDeployment.bicep](./avePostgreSqlWorkloadDeployment.bicep)
+Module reference: [avePostgreSqlWorkloadDeployment.bicep](./avePostgreSqlWorkloadDeployment.bicep)
 
 ### Inputs
 
@@ -698,7 +740,7 @@ That expected object is validated against:
 - diagnostics expectation
 - delete lock expectation
 
-See [postgresql-existing-compatible-example.bicep](./examples/postgresql-existing-compatible-example.bicep).
+See [postgresql-existing-compatible.bicepparam](./examples/postgresql-existing-compatible.bicepparam).
 
 ## Defaults matrix
 
