@@ -5,7 +5,6 @@
 // Deploy with:
 //   az deployment sub create \
 //     --location <region> \
-//     --template-file ave-templates/workloads/postgresql/avePostgreSql.bicep \
 //     --parameters ave-templates/workloads/postgresql/examples/postgresql-existing-compatible.bicepparam
 //
 // Replace every placeholder value (resource IDs, CIDRs, object IDs) before

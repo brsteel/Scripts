@@ -62,7 +62,6 @@ Workload-specific profiles should:
 ```sh
 az deployment sub create \
   --location <region> \
-  --template-file ave-templates/workloads/postgresql/avePostgreSql.bicep \
   --parameters ave-templates/workloads/postgresql/examples/<scenario>.bicepparam
 ```
 

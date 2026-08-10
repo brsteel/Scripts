@@ -4,7 +4,6 @@
 // Deploy with:
 //   az deployment sub create \
 //     --location <region> \
-//     --template-file ave-templates/workloads/postgresql/avePostgreSql.bicep \
 //     --parameters ave-templates/workloads/postgresql/examples/postgresql-secure-new.bicepparam
 //
 // Replace every placeholder value (names, CIDRs, object IDs) before deploying.

@@ -22,7 +22,6 @@ Customers deploy exactly one template and author exactly one file:
 ```sh
 az deployment sub create \
   --location <region> \
-  --template-file ave-templates/workloads/postgresql/avePostgreSql.bicep \
   --parameters ave-templates/workloads/postgresql/examples/<scenario>.bicepparam
 ```
 
@@ -554,7 +553,7 @@ foundation: {
 }
 ```
 
-Existing examples require resource IDs and expected configuration values. Use [postgresql-existing-compatible-example.bicep](./examples/postgresql-existing-compatible-example.bicep) as the reference shape.
+Existing examples require resource IDs and expected configuration values. Use [postgresql-existing-compatible.bicepparam](./examples/postgresql-existing-compatible.bicepparam) as the reference shape.
 
 ## `networkFinalization` and `communityConnectivity` parameters
 

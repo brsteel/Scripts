@@ -8,7 +8,6 @@
 // Deploy with:
 //   az deployment sub create \
 //     --location <region> \
-//     --template-file ave-templates/workloads/postgresql/avePostgreSql.bicep \
 //     --parameters ave-templates/workloads/postgresql/examples/postgresql-existing-additive-subnet.bicepparam
 //
 // Replace every placeholder value before deploying.
