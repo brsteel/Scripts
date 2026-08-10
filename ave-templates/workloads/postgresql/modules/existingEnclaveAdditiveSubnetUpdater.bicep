@@ -308,7 +308,7 @@ resource inventoryDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
 )]
 '''
       }
-      resources: []
+      resources: {}
       outputs: {
         identityRequest: {
           type: 'object'
@@ -465,8 +465,8 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
 )]
 '''
       }
-      resources: [
-        {
+      resources: {
+        missionVirtualEnclave: {
           type: 'Microsoft.Mission/virtualEnclaves'
           apiVersion: '2026-03-01-preview'
           name: '''
@@ -485,7 +485,7 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
 [variables('updatedProperties')]
 '''
         }
-      ]
+      }
       outputs: {
         location: {
           type: 'string'
