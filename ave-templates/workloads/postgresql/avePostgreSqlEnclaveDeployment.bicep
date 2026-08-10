@@ -80,6 +80,18 @@ type approvalSettingsType = {
   enclaveMaintenanceMode: approvalSettingType
 }
 
+type managedGovernanceHardeningType = {
+  mode: 'ActivateFinalApprovalSettings'
+  approvalSettings: approvalSettingsType
+}
+
+type noGovernanceHardeningType = {
+  mode: 'NotApplicable'
+}
+
+@discriminator('mode')
+type governanceHardeningType = managedGovernanceHardeningType | noGovernanceHardeningType
+
 type governedServiceExpectationType = {
   enforcement: 'Enabled'
   option: 'Allow'
@@ -290,7 +302,7 @@ type foundationDefinitionType = {
 }
 
 type phaseAHandoffType = {
-  contractVersion: '2.0'
+  contractVersion: '3.0'
   communityResourceId: string
   delegatedPrivateDnsZoneResourceId: string
   enclaveManagedResourceGroupName: string
@@ -298,6 +310,7 @@ type phaseAHandoffType = {
   enclaveResourceId: string
   enclaveVnetName: string
   enclaveVnetResourceId: string
+  governanceHardening: governanceHardeningType
   keyVaultPrivateEndpointResourceId: string
   keyVaultResourceId: string
   location: string
@@ -455,52 +468,28 @@ var privateEndpointSubnetName = enclave.mode == 'managed'
     : (enclave.privateEndpointSubnet.mode == 'Existing'
         ? enclave.privateEndpointSubnet.expectedConfiguration.name
         : enclave.privateEndpointSubnet.name)
-var normalizedManagedApprovalSettings = enclave.mode == 'managed' ? {
-  connectionCreation: enclave.approvalSettings.connectionCreation.approvalPolicy == 'Required'
-    ? {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: enclave.approvalSettings.connectionCreation.mandatoryApprovers
-        minimumApproversRequired: enclave.approvalSettings.connectionCreation.minimumApproversRequired
-      }
-    : {
-        approvalPolicy: 'NotRequired'
-        mandatoryApprovers: []
-        minimumApproversRequired: 0
-      }
-  connectionUpdate: enclave.approvalSettings.connectionUpdate.approvalPolicy == 'Required'
-    ? {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: enclave.approvalSettings.connectionUpdate.mandatoryApprovers
-        minimumApproversRequired: enclave.approvalSettings.connectionUpdate.minimumApproversRequired
-      }
-    : {
-        approvalPolicy: 'NotRequired'
-        mandatoryApprovers: []
-        minimumApproversRequired: 0
-      }
-  enclaveEndpointUpdate: enclave.approvalSettings.enclaveEndpointUpdate.approvalPolicy == 'Required'
-    ? {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: enclave.approvalSettings.enclaveEndpointUpdate.mandatoryApprovers
-        minimumApproversRequired: enclave.approvalSettings.enclaveEndpointUpdate.minimumApproversRequired
-      }
-    : {
-        approvalPolicy: 'NotRequired'
-        mandatoryApprovers: []
-        minimumApproversRequired: 0
-      }
-  enclaveMaintenanceMode: enclave.approvalSettings.enclaveMaintenanceMode.approvalPolicy == 'Required'
-    ? {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: enclave.approvalSettings.enclaveMaintenanceMode.mandatoryApprovers
-        minimumApproversRequired: enclave.approvalSettings.enclaveMaintenanceMode.minimumApproversRequired
-      }
-    : {
-        approvalPolicy: 'NotRequired'
-        mandatoryApprovers: []
-        minimumApproversRequired: 0
-      }
+var initialManagedApprovalSettings = enclave.mode == 'managed' ? {
+  connectionCreation: {
+    approvalPolicy: 'NotRequired'
+  }
+  connectionUpdate: {
+    approvalPolicy: 'NotRequired'
+  }
+  enclaveEndpointUpdate: {
+    approvalPolicy: 'NotRequired'
+  }
+  enclaveMaintenanceMode: {
+    approvalPolicy: 'NotRequired'
+  }
 } : {}
+var governanceHardening = enclave.mode == 'managed'
+  ? {
+      mode: 'ActivateFinalApprovalSettings'
+      approvalSettings: enclave.approvalSettings
+    }
+  : {
+      mode: 'NotApplicable'
+    }
 var normalizedExpectedApprovalSettings = enclave.mode == 'managed' ? {} : {
   connectionCreation: enclave.expectedConfiguration.approvalSettings.connectionCreation.approvalPolicy == 'Required'
     ? {
@@ -561,7 +550,7 @@ module managedEnclaveModule '../../modules/common/missionVirtualEnclave.bicep' =
   name: 'postgresqlManagedEnclave'
   scope: resourceGroup(targetSubscriptionId, managedEnclaveResourceGroupName)
   params: {
-    approvalSettings: normalizedManagedApprovalSettings
+    approvalSettings: initialManagedApprovalSettings
     bastionEnabled: enclave.?bastionEnabled ?? true
     communityResourceId: communityResourceId
     enclaveDefaultSettings: {
@@ -1115,9 +1104,9 @@ module keyVaultPrivateEndpointModule '../../modules/common/privateEndpoint.bicep
   ]
 }
 
-output contractVersion string = '2.0'
+output contractVersion string = '3.0'
 output phaseA phaseAHandoffType = {
-  contractVersion: '2.0'
+  contractVersion: '3.0'
   communityResourceId: communityResourceId
   delegatedPrivateDnsZoneResourceId: foundation.privateDns.delegatedZone.mode == 'managed' ? delegatedDnsZoneModule.outputs.resourceId : existingDelegatedDnsZoneResource.id
   enclaveManagedResourceGroupName: effectiveEnclaveManagedResourceGroupName
@@ -1125,6 +1114,7 @@ output phaseA phaseAHandoffType = {
   enclaveResourceId: effectiveEnclaveResourceId
   enclaveVnetName: effectiveEnclaveVnetName
   enclaveVnetResourceId: effectiveEnclaveVnetId
+  governanceHardening: governanceHardening
   keyVaultPrivateEndpointResourceId: keyVaultPrivateEndpointModule.outputs.resourceId
   keyVaultResourceId: keyVaultResourceId
   location: effectiveEnclaveLocation

@@ -1,12 +1,13 @@
 # PostgreSQL workload deployment guide
 
-This folder contains a three-phase PostgreSQL workload profile built only from local Bicep modules:
+This folder contains a PostgreSQL workload profile built only from local Bicep modules:
 
 - [avePostgreSqlEnclaveDeployment.bicep](./avePostgreSqlEnclaveDeployment.bicep) - Phase A
 - [avePostgreSqlEnclaveNetworkFinalization.bicep](./avePostgreSqlEnclaveNetworkFinalization.bicep) - Phase B
 - [avePostgreSqlWorkloadDeployment.bicep](./avePostgreSqlWorkloadDeployment.bicep) - Phase C
+- [avePostgreSqlEnclaveApprovalActivation.bicep](./avePostgreSqlEnclaveApprovalActivation.bicep) - final governance-hardening stage for newly managed enclaves
 
-Use a thin orchestration `.bicep` to chain these modules together and pass serialized outputs between phases. Do not treat the Phase A or Phase B handoff objects as independently authored static contracts unless you are intentionally replaying previously captured outputs with the exact current contract shape.
+Use a thin orchestration `.bicep` to chain these modules together and pass serialized outputs between stages. Do not treat the Phase A or Phase B handoff objects as independently authored static contracts unless you are intentionally replaying previously captured outputs with the exact current contract shape.
 
 ## What this profile does
 
@@ -15,6 +16,7 @@ Use a thin orchestration `.bicep` to chain these modules together and pass seria
 - Creates or references the CMK identity, Key Vault, CMK key, and private DNS zones required by PostgreSQL Flexible Server.
 - Creates a Key Vault private endpoint and private DNS VNet links with deterministic names.
 - Creates or references PostgreSQL Flexible Server using Microsoft Entra-only authentication.
+- For newly managed enclaves, creates the enclave first with all approval actions `NotRequired`, then activates the customer's final desired approval settings only after Phase C succeeds.
 - Never deploys passwords or local database administrator credentials.
 - Never writes NSGs, route tables, routes, service endpoints, firewalls, or direct Mission-managed VNet/subnet resources.
 
@@ -61,6 +63,8 @@ These grants are separate. Reusing the same Entra group is allowed, but each use
      - one or more `mandatoryApprovers[].approverEntraId`
      - `minimumApproversRequired >= 1`
    - `NotRequired` needs no approver IDs and the module normalizes it to an empty list with minimum `0`.
+   - For newly managed enclaves, these declarations are the **final desired** approval settings. Phase A intentionally creates the enclave with all actions `NotRequired`, and the final hardening stage activates the desired settings after the PostgreSQL workload is in place.
+   - For existing enclaves, the template never disables or weakens live approvals. If the existing enclave already requires approval for endpoint, connection, or additive-subnet operations, deployment completion depends on external approver action within an ARM/RP timing window that is not publicly guaranteed. The template cannot self-approve, and deployment RBAC is not approval authority.
    - Separate actions exist for:
      - `connectionCreation`
      - `connectionUpdate`
@@ -122,13 +126,14 @@ Practical implication:
 - Mission role assignments and standard Azure RBAC are separate mechanisms.
 - The templates default managed PostgreSQL enclaves to `rbacInheritance = 'Disabled'` and `workloadResourceVisibility = 'Disabled'`, so readers/operators may need explicit assignment even if they can deploy the template.
 
-## How to use the three phases
+## How to use the staged orchestration
 
 Use one orchestration file that chains outputs:
 
 1. Phase A emits `phaseA.outputs.phaseA`
 2. Phase B consumes that and emits `phaseB.outputs.foundation`
 3. Phase C consumes `phaseB.outputs.foundation`
+4. For newly managed enclaves, the final hardening stage consumes `phaseA.outputs.phaseA` plus a Phase C output and activates the final approval settings
 
 See:
 
@@ -141,6 +146,8 @@ Recommended workflow:
 - author a thin orchestration `.bicep`
 - optionally author a `.bicepparam` file for top-level parameters like location, names, IDs, and tags
 - build the orchestration, not the phase modules in isolation for deployment
+
+If the final approval-activation stage fails after Phase C succeeds, ARM does not roll back the already-created PostgreSQL workload resources. Treat that result as an incomplete governance-hardening deployment and rerun or remediate idempotently.
 
 ## Phase A parameter guide
 
@@ -193,6 +200,8 @@ enclave: {
   name: 'contoso-enclave'
   resourceGroupName: 'rg-contoso-enclave'
   addressSpaceCidr: '10.250.0.0/16'
+  // Final desired approval settings. Phase A creates the new enclave with all
+  // actions NotRequired, then the final hardening stage activates this object.
   approvalSettings: {
     connectionCreation: {
       approvalPolicy: 'Required'
@@ -662,6 +671,29 @@ That expected object is validated against:
 
 See [postgresql-existing-compatible-example.bicep](./examples/postgresql-existing-compatible-example.bicep).
 
+## Final approval activation stage
+
+Module: [avePostgreSqlEnclaveApprovalActivation.bicep](./avePostgreSqlEnclaveApprovalActivation.bicep)
+
+Use this only for `phaseA.enclaveOwnership = 'managed'`.
+
+Required inputs:
+
+- `phaseA`: the Phase A handoff object from the same orchestration chain
+- `workloadCompletion.flexibleServerResourceId`: a Phase C output used to serialize this stage after workload deployment
+
+Behavior:
+
+- reads the live Mission enclave after Phase C
+- preserves the live writable enclave settings through a full Mission `virtualEnclaves@2026-03-01-preview` PUT
+- updates only `approvalSettings`
+- fails closed if the live enclave does not explicitly expose the shared writable settings that must be round-tripped safely
+
+One-shot orchestration note:
+
+- if this stage fails, the deployment is not fully governance-hardened even though the PostgreSQL server and earlier infrastructure may already exist
+- rerun after correcting approver IDs, permissions, RP approval state, or preview-RP issues
+
 ## Defaults matrix
 
 Only values implemented in code are listed here.
@@ -686,7 +718,8 @@ Only values implemented in code are listed here.
 | enclave managed | enclaveRoleAssignments | `[]` |
 | enclave managed | workloadRoleAssignments | `[]` |
 | enclave managed | additionalMaintenancePrincipals | `[]` |
-| enclave managed | approvalSettings | **no default; required** |
+| enclave managed | approvalSettings | **no default; required as final desired policy** |
+| enclave managed runtime behavior | initial Mission approval payload during Phase A | all actions forced to `NotRequired` with empty approvers / minimum `0` |
 | workload managed | name | **no default** |
 | workload managed | resourceGroupName | **no default** |
 | foundation.cmkIdentity managed | resourceGroupName | workload resource group |
@@ -757,6 +790,13 @@ Only values implemented in code are listed here.
 | managed server sku.name | **no default** |
 | managed server administrators | **no default; at least one required** |
 
+### Final approval activation defaults
+
+| Surface | Field | Default |
+| --- | --- | --- |
+| approval activation | workloadCompletion.flexibleServerResourceId | **no default; required in one-shot orchestration** |
+| approval activation | final approval settings | carried from Phase A `enclave.approvalSettings` |
+
 ### Fields with no default that must be supplied
 
 - `deploymentPrincipal.objectId`
@@ -766,7 +806,7 @@ Only values implemented in code are listed here.
 - managed `enclave.name`
 - managed `enclave.resourceGroupName`
 - managed `enclave.addressSpaceCidr`
-- managed `enclave.approvalSettings`
+- managed `enclave.approvalSettings` (final desired approval policy)
 - managed `enclave.postgreSqlSubnet.networkPrefixSize`
 - managed `enclave.privateEndpointSubnet.networkPrefixSize`
 - managed or existing `workload` mode-specific required IDs/names
@@ -802,6 +842,7 @@ Behavior:
 - preserves the live enclave identity, tags, approvals, diagnostics, network shape, governed services, maintenance configuration, and Mission role-assignment collections in the Mission PUT payload
 - performs the update through `Microsoft.Mission/virtualEnclaves@2026-03-01-preview`
 - never writes `Microsoft.Network/virtualNetworks/subnets` directly
+- may still wait on external approval if the live enclave requires approval for the relevant Mission operation
 
 Residual preview risk:
 

@@ -54,14 +54,14 @@ Workload-specific profiles should:
 - [avePostgreSqlEnclaveDeployment.bicep](./workloads/postgresql/avePostgreSqlEnclaveDeployment.bicep) creates or references the Mission community, Mission enclave, workload registration, CMK identity, private Key Vault, CMK, private DNS, and Key Vault private endpoint, then emits a frozen Phase A handoff object.
 - [avePostgreSqlEnclaveNetworkFinalization.bicep](./workloads/postgresql/avePostgreSqlEnclaveNetworkFinalization.bicep) creates or references supported Mission community endpoints and enclave connections without mutating Mission-managed VNet or subnet resources, then emits a Phase B foundation handoff object.
 - [avePostgreSqlWorkloadDeployment.bicep](./workloads/postgresql/avePostgreSqlWorkloadDeployment.bicep) creates or references a PostgreSQL Flexible Server in the workload resource group using Entra-only authentication, customer-managed keys, public network disabled delegated-subnet mode, and private DNS.
-- [PostgreSQL workload deployment guide](./workloads/postgresql/README.md) documents prerequisites, parameter construction, defaults, compatibility rules, and example orchestration patterns.
+- [PostgreSQL workload deployment guide](./workloads/postgresql/README.md) documents prerequisites, parameter construction, defaults, compatibility rules, and example orchestration patterns, including final approval activation for newly managed enclaves.
 
 ### Secure defaults
 
 - PostgreSQL auth is Entra-only: `activeDirectoryAuth = Enabled`, `passwordAuth = Disabled`.
 - Public network access is disabled by delegated-subnet private deployment; no public firewall rules are authored.
 - Managed PostgreSQL enclaves default to `allowSubnetCommunication = true`, `bastionEnabled = true`, `diagnosticDestination = Both`, `rbacInheritance = Disabled`, and `workloadResourceVisibility = Disabled`, while governed services include PostgreSQL, Key Vault, and Private DNS Zones with `Allow/Enabled/Enforce`.
-- Managed PostgreSQL enclave approval settings are explicit input. `Required` approvals must include at least one mandatory approver object ID and `minimumApproversRequired >= 1`; `NotRequired` approvals normalize to an empty approver list with minimum `0`.
+- Managed PostgreSQL enclave approval settings are explicit final-desired input. Phase A creates a new managed enclave with all approval actions `NotRequired`, then a final hardening stage activates the desired approvals after PostgreSQL workload deployment succeeds. `Required` approvals must include at least one mandatory approver object ID and `minimumApproversRequired >= 1`; `NotRequired` approvals normalize to an empty approver list with minimum `0`.
 - DNS suffixes are derived from `environment()` and `environment().resourceManager`; no named-cloud lookup table is used.
 - Managed Key Vault deployments are RBAC-only, purge-protected, private-only, and paired with a private endpoint plus private DNS.
 
@@ -73,7 +73,7 @@ Workload-specific profiles should:
 - `AdditiveSubnetUpdate` inventories every live Mission subnet configuration, fails closed on subnet-name collisions, appends only genuinely new dedicated subnet requests, and sends the complete subnet union back through `Microsoft.Mission/virtualEnclaves@2026-03-01-preview`. It preserves the live enclave identity, tags, CIDR/network settings, approvals, Bastion, diagnostics, RBAC, maintenance, monitoring, governed services, and role assignments instead of writing `Microsoft.Network/virtualNetworks/subnets` directly.
 - The additive mode still relies on a preview RP shape and on ARM/Bicep successfully roundtripping the currently documented writable virtual-enclave properties. Treat it as a preview-path change surface and validate generated ARM before deployment.
 - Multiple workloads can share an enclave only when the shared enclave settings remain compatible and each workload uses non-colliding dedicated PostgreSQL and private-endpoint subnets.
-- Phase A/B handoff contracts are now `2.0` and carry actual PostgreSQL/private-endpoint CIDR outputs from Mission for both managed and existing-enclave flows.
+- Phase A/B handoff contracts are now `3.0` and carry actual PostgreSQL/private-endpoint CIDR outputs from Mission for both managed and existing-enclave flows, plus managed-enclave governance-hardening metadata for final approval activation.
 
 ### Supporting resource idempotency
 
@@ -84,7 +84,7 @@ Workload-specific profiles should:
 
 ### Examples
 
-- [postgresql-secure-new-example.bicep](./workloads/postgresql/examples/postgresql-secure-new-example.bicep) shows a fully managed secure-new flow across Phase A, network finalization, and PostgreSQL server deployment.
+- [postgresql-secure-new-example.bicep](./workloads/postgresql/examples/postgresql-secure-new-example.bicep) shows a fully managed secure-new flow across Phase A, network finalization, PostgreSQL server deployment, and final approval activation.
 - [postgresql-existing-compatible-example.bicep](./workloads/postgresql/examples/postgresql-existing-compatible-example.bicep) shows an existing-compatible flow with reference-only enclave networking and an existing PostgreSQL server contract.
 - [postgresql-existing-additive-subnet-example.bicep](./workloads/postgresql/examples/postgresql-existing-additive-subnet-example.bicep) shows the explicit additive-subnet mode for an existing enclave while still keeping Mission network ownership intact.
 

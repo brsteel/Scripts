@@ -6,7 +6,7 @@ type deploymentContextType = {
 }
 
 type phaseAType = {
-  contractVersion: '2.0'
+  contractVersion: '3.0'
   delegatedPrivateDnsZoneResourceId: string
   geoCmk: {
     mode: 'absent'
@@ -23,7 +23,7 @@ type phaseAType = {
 }
 
 type foundationType = {
-  contractVersion: '2.0'
+  contractVersion: '3.0'
   communityEndpointResourceIds: string[]
   enclaveConnectionResourceIds: string[]
   phaseA: phaseAType
@@ -228,7 +228,7 @@ module foundationCloudGate './modules/requiredTextSubscriptionGate.bicep' = {
   }
 }
 
-output contractVersion string = '2.0'
+output contractVersion string = '3.0'
 output flexibleServerResourceId string = workloadDeployment.outputs.flexibleServerResourceId
 output flexibleServerName string = workloadDeployment.outputs.flexibleServerName
 output fullyQualifiedDomainName string = workloadDeployment.outputs.fullyQualifiedDomainName

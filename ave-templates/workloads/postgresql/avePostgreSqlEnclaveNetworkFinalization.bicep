@@ -24,7 +24,7 @@ type endpointDestinationType =
 type sourceSubnetKind = 'DelegatedPostgreSql' | 'PrivateEndpoints'
 
 type phaseAType = {
-  contractVersion: '2.0'
+  contractVersion: '3.0'
   communityResourceId: string
   enclaveOwnership: 'managed' | 'existing'
   enclaveResourceId: string
@@ -38,7 +38,7 @@ type phaseAType = {
 }
 
 type foundationType = {
-  contractVersion: '2.0'
+  contractVersion: '3.0'
   phaseA: phaseAType
   communityEndpointResourceIds: string[]
   enclaveConnectionResourceIds: string[]
@@ -170,9 +170,9 @@ var finalEnclaveConnectionIds = networkFinalization.mode == 'ExistingReferenceOn
       ? concat(networkFinalization.existingEnclaveConnectionResourceIds, createdConnectionIds)
       : createdConnectionIds)
 
-output contractVersion string = '2.0'
+output contractVersion string = '3.0'
 output foundation foundationType = {
-  contractVersion: '2.0'
+  contractVersion: '3.0'
   communityEndpointResourceIds: finalCommunityEndpointIds
   enclaveConnectionResourceIds: finalEnclaveConnectionIds
   phaseA: phaseA

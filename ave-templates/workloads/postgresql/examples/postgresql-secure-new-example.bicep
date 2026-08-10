@@ -28,6 +28,9 @@ module phaseA '../avePostgreSqlEnclaveDeployment.bicep' = {
       name: 'contoso-enclave'
       resourceGroupName: 'rg-contoso-enclave'
       addressSpaceCidr: '10.250.0.0/16'
+      // These are the final desired approvals. Phase A creates the enclave with
+      // all approval actions NotRequired, then the final hardening stage below
+      // activates these settings after Phase C succeeds.
       approvalSettings: {
         connectionCreation: {
           approvalPolicy: 'Required'
@@ -162,6 +165,17 @@ module phaseC '../avePostgreSqlWorkloadDeployment.bicep' = {
   }
 }
 
+module phaseD '../avePostgreSqlEnclaveApprovalActivation.bicep' = {
+  name: 'secureNewPhaseD'
+  params: {
+    phaseA: phaseA.outputs.phaseA
+    workloadCompletion: {
+      flexibleServerResourceId: phaseC.outputs.flexibleServerResourceId
+    }
+  }
+}
+
 output phaseAContract string = phaseA.outputs.contractVersion
 output phaseBContract string = phaseB.outputs.contractVersion
 output phaseCContract string = phaseC.outputs.contractVersion
+output phaseDContract string = phaseD.outputs.contractVersion
