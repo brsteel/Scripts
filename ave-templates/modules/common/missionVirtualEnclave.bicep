@@ -18,12 +18,22 @@ type mandatoryApprover = {
 }
 
 @sealed()
-type approvalSettingConfiguration = {
-  approvalPolicy: approvalPolicy
-  mandatoryApprovers: mandatoryApprover[]?
-  @minValue(0)
-  minimumApproversRequired: int?
+type requiredApprovalSettingConfiguration = {
+  approvalPolicy: 'Required'
+  @minLength(1)
+  mandatoryApprovers: mandatoryApprover[]
+  @minValue(1)
+  minimumApproversRequired: int
 }
+
+@sealed()
+type notRequiredApprovalSettingConfiguration = {
+  approvalPolicy: 'NotRequired'
+}
+
+@sealed()
+@discriminator('approvalPolicy')
+type approvalSettingConfiguration = requiredApprovalSettingConfiguration | notRequiredApprovalSettingConfiguration
 
 @sealed()
 type principal = {
@@ -129,13 +139,15 @@ param userAssignedIdentityResourceIds string[] = []
 param tags object = {}
 
 @description('Whether Mission should enable Bastion for the enclave.')
-param bastionEnabled bool = false
+param bastionEnabled bool = true
 
 @description('Optional dedicated hub resource ID.')
 param dedicatedHubResourceId string = ''
 
 @description('Optional default diagnostic destination setting.')
-param enclaveDefaultSettings enclaveDefaultSettingsModel?
+param enclaveDefaultSettings enclaveDefaultSettingsModel = {
+  diagnosticDestination: 'Both'
+}
 
 @description('Optional approval settings.')
 param approvalSettings virtualEnclaveApprovalSettings?
@@ -175,8 +187,63 @@ var subnetConfigurations = [for subnet in networkConfiguration.subnetConfigurati
   subnetDelegation: subnet.subnetDelegation
 })]
 
+var normalizedApprovalSettings = approvalSettings == null ? null : union(
+  approvalSettings.?connectionCreation == null ? {} : {
+    connectionCreation: approvalSettings.connectionCreation.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: approvalSettings.connectionCreation.mandatoryApprovers
+          minimumApproversRequired: approvalSettings.connectionCreation.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        }
+  },
+  approvalSettings.?connectionUpdate == null ? {} : {
+    connectionUpdate: approvalSettings.connectionUpdate.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: approvalSettings.connectionUpdate.mandatoryApprovers
+          minimumApproversRequired: approvalSettings.connectionUpdate.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        }
+  },
+  approvalSettings.?enclaveEndpointUpdate == null ? {} : {
+    enclaveEndpointUpdate: approvalSettings.enclaveEndpointUpdate.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: approvalSettings.enclaveEndpointUpdate.mandatoryApprovers
+          minimumApproversRequired: approvalSettings.enclaveEndpointUpdate.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        }
+  },
+  approvalSettings.?enclaveMaintenanceMode == null ? {} : {
+    enclaveMaintenanceMode: approvalSettings.enclaveMaintenanceMode.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: approvalSettings.enclaveMaintenanceMode.mandatoryApprovers
+          minimumApproversRequired: approvalSettings.enclaveMaintenanceMode.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        }
+  }
+)
+
 var enclaveVirtualNetwork = union({
-  allowSubnetCommunication: networkConfiguration.allowSubnetCommunication ?? false
+  allowSubnetCommunication: networkConfiguration.allowSubnetCommunication ?? true
   subnetConfigurations: subnetConfigurations
 }, networkConfiguration.mode == 'CustomCidr' ? {
   customCidrRange: networkConfiguration.customCidrRange
@@ -199,15 +266,14 @@ resource virtualEnclaveResource 'Microsoft.Mission/virtualEnclaves@2026-03-01-pr
   properties: union({
     bastionEnabled: bastionEnabled
     communityResourceId: communityResourceId
+    enclaveDefaultSettings: enclaveDefaultSettings
     enclaveVirtualNetwork: enclaveVirtualNetwork
     rbacInheritance: rbacInheritance
     workloadResourceVisibility: workloadResourceVisibility
   }, empty(dedicatedHubResourceId) ? {} : {
     dedicatedHubResourceId: dedicatedHubResourceId
-  }, enclaveDefaultSettings == null ? {} : {
-    enclaveDefaultSettings: enclaveDefaultSettings
-  }, approvalSettings == null ? {} : {
-    approvalSettings: approvalSettings
+  }, normalizedApprovalSettings == null ? {} : {
+    approvalSettings: normalizedApprovalSettings
   }, length(enclaveRoleAssignments) == 0 ? {} : {
     enclaveRoleAssignments: enclaveRoleAssignments
   }, length(governedServiceList) == 0 ? {} : {

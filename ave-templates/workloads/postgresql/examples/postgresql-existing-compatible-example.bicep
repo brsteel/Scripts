@@ -23,16 +23,50 @@ module phaseA '../avePostgreSqlEnclaveDeployment.bicep' = {
       principalType: 'User'
     }
     enclave: {
-      mode: 'existing'
+      mode: 'ReferenceOnly'
       resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-enclave/providers/Microsoft.Mission/virtualEnclaves/existing-enclave'
       expectedConfiguration: {
-        approvalPolicies: {
-          connectionCreation: 'Required'
-          connectionUpdate: 'Required'
-          enclaveEndpointUpdate: 'Required'
-          enclaveMaintenanceMode: 'Required'
+        approvalSettings: {
+          connectionCreation: {
+            approvalPolicy: 'Required'
+            mandatoryApprovers: [
+              {
+                approverEntraId: '55555555-5555-5555-5555-555555555555'
+              }
+            ]
+            minimumApproversRequired: 1
+          }
+          connectionUpdate: {
+            approvalPolicy: 'Required'
+            mandatoryApprovers: [
+              {
+                approverEntraId: '66666666-6666-6666-6666-666666666666'
+              }
+            ]
+            minimumApproversRequired: 1
+          }
+          enclaveEndpointUpdate: {
+            approvalPolicy: 'Required'
+            mandatoryApprovers: [
+              {
+                approverEntraId: '77777777-7777-7777-7777-777777777777'
+              }
+            ]
+            minimumApproversRequired: 1
+          }
+          enclaveMaintenanceMode: {
+            approvalPolicy: 'Required'
+            mandatoryApprovers: [
+              {
+                approverEntraId: '88888888-8888-8888-8888-888888888888'
+              }
+            ]
+            minimumApproversRequired: 1
+          }
         }
+        bastionEnabled: 'Enabled'
         communityResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-community/providers/Microsoft.Mission/communities/existing-community'
+        diagnosticDestination: 'Both'
         governedServiceList: [
           {
             enforcement: 'Enabled'
@@ -55,8 +89,8 @@ module phaseA '../avePostgreSqlEnclaveDeployment.bicep' = {
         ]
         location: location
         network: {
-          allowSubnetCommunication: 'Disabled'
-          delegatedSubnet: {
+          allowSubnetCommunication: 'Enabled'
+          postgreSqlSubnet: {
             addressPrefix: '10.250.10.0/24'
             name: 'snet-postgresql'
             networkPrefixSize: 24

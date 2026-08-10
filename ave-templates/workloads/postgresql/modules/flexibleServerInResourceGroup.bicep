@@ -6,9 +6,8 @@ type deploymentContextType = {
 }
 
 type foundationPhaseAType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   delegatedPrivateDnsZoneResourceId: string
-  delegatedSubnetResourceId: string
   geoCmk: {
     mode: 'absent' | 'configured'
     identityResourceId: string?
@@ -17,11 +16,12 @@ type foundationPhaseAType = {
   location: string
   postgreSqlCmkIdentityResourceId: string
   postgreSqlCmkKeyUri: string
+  postgreSqlSubnetResourceId: string
   workloadResourceId: string
 }
 
 type foundationType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   phaseA: foundationPhaseAType
 }
 
@@ -238,7 +238,7 @@ module managedFlexibleServer './flexibleServer.bicep' = if (server.mode == 'mana
     cmkIdentityResourceId: foundation.phaseA.postgreSqlCmkIdentityResourceId
     cmkKeyUri: foundation.phaseA.postgreSqlCmkKeyUri
     delegatedPrivateDnsZoneResourceId: foundation.phaseA.delegatedPrivateDnsZoneResourceId
-    delegatedSubnetResourceId: foundation.phaseA.delegatedSubnetResourceId
+    delegatedSubnetResourceId: foundation.phaseA.postgreSqlSubnetResourceId
     flexibleServerName: resolvedServerName
     geoCmk: resolvedGeoCmk
     highAvailability: resolvedHighAvailability

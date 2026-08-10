@@ -24,13 +24,13 @@ type endpointDestinationType =
 type sourceSubnetKind = 'DelegatedPostgreSql' | 'PrivateEndpoints'
 
 type phaseAType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   communityResourceId: string
-  delegatedSubnetAddressPrefix: string
-  delegatedSubnetName: string
   enclaveOwnership: 'managed' | 'existing'
   enclaveResourceId: string
   location: string
+  postgreSqlSubnetAddressPrefix: string
+  postgreSqlSubnetName: string
   privateEndpointSubnetAddressPrefix: string
   privateEndpointSubnetName: string
   workloadResourceId: string
@@ -38,7 +38,7 @@ type phaseAType = {
 }
 
 type foundationType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   phaseA: phaseAType
   communityEndpointResourceIds: string[]
   enclaveConnectionResourceIds: string[]
@@ -137,8 +137,8 @@ var effectiveEndpointIds = [for (connectivity, index) in communityConnectivity: 
 
 var connectionNames = [for (connectivity, index) in communityConnectivity: connectivity.?connectionName ?? 'conn-pg-${substring(uniqueString(phaseA.enclaveResourceId, effectiveEndpointIds[index], string(connectivity.sourceSubnets)), 0, 8)}']
 var connectionSourceCidrs = [for connectivity in communityConnectivity: contains(connectivity.sourceSubnets, 'DelegatedPostgreSql') && contains(connectivity.sourceSubnets, 'PrivateEndpoints')
-  ? '${phaseA.delegatedSubnetAddressPrefix},${phaseA.privateEndpointSubnetAddressPrefix}'
-  : (contains(connectivity.sourceSubnets, 'DelegatedPostgreSql') ? phaseA.delegatedSubnetAddressPrefix : phaseA.privateEndpointSubnetAddressPrefix)
+  ? '${phaseA.postgreSqlSubnetAddressPrefix},${phaseA.privateEndpointSubnetAddressPrefix}'
+  : (contains(connectivity.sourceSubnets, 'DelegatedPostgreSql') ? phaseA.postgreSqlSubnetAddressPrefix : phaseA.privateEndpointSubnetAddressPrefix)
 ]
 
 module enclaveConnectionModules '../../modules/common/missionEnclaveConnection.bicep' = [for (connectivity, index) in communityConnectivity: if (networkFinalization.mode != 'ExistingReferenceOnly') {
@@ -170,9 +170,9 @@ var finalEnclaveConnectionIds = networkFinalization.mode == 'ExistingReferenceOn
       ? concat(networkFinalization.existingEnclaveConnectionResourceIds, createdConnectionIds)
       : createdConnectionIds)
 
-output contractVersion string = '1.0'
+output contractVersion string = '2.0'
 output foundation foundationType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   communityEndpointResourceIds: finalCommunityEndpointIds
   enclaveConnectionResourceIds: finalEnclaveConnectionIds
   phaseA: phaseA

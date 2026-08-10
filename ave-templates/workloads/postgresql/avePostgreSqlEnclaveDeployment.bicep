@@ -44,18 +44,47 @@ type subnetRequestType = {
   networkPrefixSize: int
 }
 
+type additiveSubnetRequestType = {
+  @minLength(1)
+  name: string
+  networkPrefixSize: int
+}
+
+type approvalPolicyType = 'NotRequired' | 'Required'
+type diagnosticDestinationType = 'Both' | 'CommunityOnly' | 'EnclaveOnly'
+type toggleStateType = 'Disabled' | 'Enabled'
+
+type mandatoryApproverType = {
+  approverEntraId: string
+}
+
+type requiredApprovalSettingType = {
+  approvalPolicy: 'Required'
+  @minLength(1)
+  mandatoryApprovers: mandatoryApproverType[]
+  @minValue(1)
+  minimumApproversRequired: int
+}
+
+type notRequiredApprovalSettingType = {
+  approvalPolicy: 'NotRequired'
+}
+
+@discriminator('approvalPolicy')
+type approvalSettingType = requiredApprovalSettingType | notRequiredApprovalSettingType
+
+type approvalSettingsType = {
+  connectionCreation: approvalSettingType
+  connectionUpdate: approvalSettingType
+  enclaveEndpointUpdate: approvalSettingType
+  enclaveMaintenanceMode: approvalSettingType
+}
+
 type governedServiceExpectationType = {
   enforcement: 'Enabled'
   option: 'Allow'
   policyAction: 'Enforce'
   serviceId: 'KeyVault' | 'PostgreSQL' | 'PrivateDNSZones'
-}
-
-type approvalPoliciesExpectationType = {
-  connectionCreation: 'NotRequired' | 'Required'
-  connectionUpdate: 'NotRequired' | 'Required'
-  enclaveEndpointUpdate: 'NotRequired' | 'Required'
-  enclaveMaintenanceMode: 'NotRequired' | 'Required'
 }
 
 type expectedEnclaveSubnetType = {
@@ -67,14 +96,30 @@ type expectedEnclaveSubnetType = {
   subnetDelegation: string
 }
 
-type expectedEnclaveType = {
-  approvalPolicies: approvalPoliciesExpectationType
+type additiveExistingEnclaveExpectedType = {
+  approvalSettings: approvalSettingsType
+  bastionEnabled: toggleStateType
   communityResourceId: string
+  diagnosticDestination: diagnosticDestinationType
   governedServiceList: governedServiceExpectationType[]
   location: string
   network: {
-    allowSubnetCommunication: 'Disabled'
-    delegatedSubnet: expectedEnclaveSubnetType
+    allowSubnetCommunication: toggleStateType
+  }
+  rbacInheritance: 'Disabled'
+  workloadResourceVisibility: 'Disabled'
+}
+
+type referenceOnlyExpectedEnclaveType = {
+  approvalSettings: approvalSettingsType
+  bastionEnabled: toggleStateType
+  communityResourceId: string
+  diagnosticDestination: diagnosticDestinationType
+  governedServiceList: governedServiceExpectationType[]
+  location: string
+  network: {
+    allowSubnetCommunication: toggleStateType
+    postgreSqlSubnet: expectedEnclaveSubnetType
     privateEndpointSubnet: expectedEnclaveSubnetType
   }
   rbacInheritance: 'Disabled'
@@ -86,23 +131,48 @@ type managedEnclaveType = {
   name: string
   resourceGroupName: string
   addressSpaceCidr: string
+  approvalSettings: approvalSettingsType
   postgreSqlSubnet: subnetRequestType
   privateEndpointSubnet: subnetRequestType
-  bastion: 'Enabled' | 'Disabled'?
-  diagnosticDestination: 'Both' | 'CommunityOnly' | 'EnclaveOnly'?
+  allowSubnetCommunication: bool?
+  bastionEnabled: bool?
+  diagnosticDestination: diagnosticDestinationType?
   enclaveRoleAssignments: missionRoleAssignmentType[]?
   workloadRoleAssignments: missionRoleAssignmentType[]?
   additionalMaintenancePrincipals: missionPrincipalType[]?
 }
 
-type existingEnclaveType = {
-  mode: 'existing'
-  resourceId: string
-  expectedConfiguration: expectedEnclaveType
+type existingPrivateEndpointSubnetReferenceType = {
+  mode: 'Existing'
+  expectedConfiguration: expectedEnclaveSubnetType
+}
+
+type additivePrivateEndpointSubnetRequestType = {
+  mode: 'New'
+  @minLength(1)
+  name: string
+  networkPrefixSize: int
 }
 
 @discriminator('mode')
-type enclaveDefinitionType = managedEnclaveType | existingEnclaveType
+type additivePrivateEndpointSubnetType = existingPrivateEndpointSubnetReferenceType | additivePrivateEndpointSubnetRequestType
+
+type existingReferenceOnlyEnclaveType = {
+  mode: 'ReferenceOnly'
+  resourceId: string
+  expectedConfiguration: referenceOnlyExpectedEnclaveType
+}
+
+type existingAdditiveSubnetUpdateEnclaveType = {
+  mode: 'AdditiveSubnetUpdate'
+  resourceId: string
+  expectedConfiguration: additiveExistingEnclaveExpectedType
+  postgreSqlSubnet: additiveSubnetRequestType
+  privateEndpointSubnet: additivePrivateEndpointSubnetType
+}
+
+@discriminator('mode')
+type enclaveDefinitionType = managedEnclaveType | existingReferenceOnlyEnclaveType | existingAdditiveSubnetUpdateEnclaveType
 
 type managedWorkloadType = {
   mode: 'managed'
@@ -220,13 +290,9 @@ type foundationDefinitionType = {
 }
 
 type phaseAHandoffType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   communityResourceId: string
   delegatedPrivateDnsZoneResourceId: string
-  delegatedSubnetAddressPrefix: string
-  delegatedSubnetName: string
-  delegatedSubnetNsgResourceId: string
-  delegatedSubnetResourceId: string
   enclaveManagedResourceGroupName: string
   enclaveOwnership: 'managed' | 'existing'
   enclaveResourceId: string
@@ -244,6 +310,10 @@ type phaseAHandoffType = {
   postgreSqlCmkKeyUri: string
   postgreSqlDnsSuffix: string
   postgreSqlPrivateLinkZoneName: string
+  postgreSqlSubnetAddressPrefix: string
+  postgreSqlSubnetName: string
+  postgreSqlSubnetNsgResourceId: string
+  postgreSqlSubnetResourceId: string
   geoCmk: {
     mode: 'absent'
   }
@@ -265,7 +335,7 @@ param deploymentPrincipal deploymentPrincipalType
 @description('Managed-or-existing Mission community.')
 param community communityDefinitionType
 
-@description('Managed-or-existing Mission enclave. Existing enclaves are reference-only and must already contain a compatible delegated PostgreSQL subnet.')
+@description('Managed or existing Mission enclave. Existing enclaves must explicitly choose ReferenceOnly or AdditiveSubnetUpdate behavior.')
 param enclave enclaveDefinitionType
 
 @description('Managed-or-existing Mission workload registration.')
@@ -373,8 +443,110 @@ var managedEnclaveMaintenancePrincipals = concat([
   deploymentPrincipalForMission
 ], enclave.mode == 'managed' ? enclave.?additionalMaintenancePrincipals ?? [] : [])
 var managedEnclaveResourceGroupName = enclave.mode == 'managed' ? enclave.resourceGroupName : ''
-var delegatedSubnetName = enclave.mode == 'managed' ? enclave.postgreSqlSubnet.?name ?? 'snet-postgresql' : enclave.expectedConfiguration.network.delegatedSubnet.name
-var privateEndpointSubnetName = enclave.mode == 'managed' ? enclave.privateEndpointSubnet.?name ?? 'snet-private-endpoints' : enclave.expectedConfiguration.network.privateEndpointSubnet.name
+var postgreSqlSubnetName = enclave.mode == 'managed'
+  ? enclave.postgreSqlSubnet.?name ?? 'snet-postgresql'
+  : enclave.mode == 'ReferenceOnly'
+    ? enclave.expectedConfiguration.network.postgreSqlSubnet.name
+    : enclave.postgreSqlSubnet.name
+var privateEndpointSubnetName = enclave.mode == 'managed'
+  ? enclave.privateEndpointSubnet.?name ?? 'snet-private-endpoints'
+  : enclave.mode == 'ReferenceOnly'
+    ? enclave.expectedConfiguration.network.privateEndpointSubnet.name
+    : (enclave.privateEndpointSubnet.mode == 'Existing'
+        ? enclave.privateEndpointSubnet.expectedConfiguration.name
+        : enclave.privateEndpointSubnet.name)
+var normalizedManagedApprovalSettings = enclave.mode == 'managed' ? {
+  connectionCreation: enclave.approvalSettings.connectionCreation.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.approvalSettings.connectionCreation.mandatoryApprovers
+        minimumApproversRequired: enclave.approvalSettings.connectionCreation.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+  connectionUpdate: enclave.approvalSettings.connectionUpdate.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.approvalSettings.connectionUpdate.mandatoryApprovers
+        minimumApproversRequired: enclave.approvalSettings.connectionUpdate.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+  enclaveEndpointUpdate: enclave.approvalSettings.enclaveEndpointUpdate.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.approvalSettings.enclaveEndpointUpdate.mandatoryApprovers
+        minimumApproversRequired: enclave.approvalSettings.enclaveEndpointUpdate.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+  enclaveMaintenanceMode: enclave.approvalSettings.enclaveMaintenanceMode.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.approvalSettings.enclaveMaintenanceMode.mandatoryApprovers
+        minimumApproversRequired: enclave.approvalSettings.enclaveMaintenanceMode.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+} : {}
+var normalizedExpectedApprovalSettings = enclave.mode == 'managed' ? {} : {
+  connectionCreation: enclave.expectedConfiguration.approvalSettings.connectionCreation.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.expectedConfiguration.approvalSettings.connectionCreation.mandatoryApprovers
+        minimumApproversRequired: enclave.expectedConfiguration.approvalSettings.connectionCreation.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+  connectionUpdate: enclave.expectedConfiguration.approvalSettings.connectionUpdate.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.expectedConfiguration.approvalSettings.connectionUpdate.mandatoryApprovers
+        minimumApproversRequired: enclave.expectedConfiguration.approvalSettings.connectionUpdate.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+  enclaveEndpointUpdate: enclave.expectedConfiguration.approvalSettings.enclaveEndpointUpdate.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.expectedConfiguration.approvalSettings.enclaveEndpointUpdate.mandatoryApprovers
+        minimumApproversRequired: enclave.expectedConfiguration.approvalSettings.enclaveEndpointUpdate.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+  enclaveMaintenanceMode: enclave.expectedConfiguration.approvalSettings.enclaveMaintenanceMode.approvalPolicy == 'Required'
+    ? {
+        approvalPolicy: 'Required'
+        mandatoryApprovers: enclave.expectedConfiguration.approvalSettings.enclaveMaintenanceMode.mandatoryApprovers
+        minimumApproversRequired: enclave.expectedConfiguration.approvalSettings.enclaveMaintenanceMode.minimumApproversRequired
+      }
+    : {
+        approvalPolicy: 'NotRequired'
+        mandatoryApprovers: []
+        minimumApproversRequired: 0
+      }
+}
 
 module enclaveResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (enclave.mode == 'managed') {
   name: 'postgresqlEnclaveResourceGroup'
@@ -389,28 +561,11 @@ module managedEnclaveModule '../../modules/common/missionVirtualEnclave.bicep' =
   name: 'postgresqlManagedEnclave'
   scope: resourceGroup(targetSubscriptionId, managedEnclaveResourceGroupName)
   params: {
-    approvalSettings: {
-      connectionCreation: {
-        approvalPolicy: 'Required'
-        minimumApproversRequired: 1
-      }
-      connectionUpdate: {
-        approvalPolicy: 'Required'
-        minimumApproversRequired: 1
-      }
-      enclaveEndpointUpdate: {
-        approvalPolicy: 'Required'
-        minimumApproversRequired: 1
-      }
-      enclaveMaintenanceMode: {
-        approvalPolicy: 'Required'
-        minimumApproversRequired: 1
-      }
-    }
-    bastionEnabled: (enclave.?bastion ?? 'Disabled') == 'Enabled'
+    approvalSettings: normalizedManagedApprovalSettings
+    bastionEnabled: enclave.?bastionEnabled ?? true
     communityResourceId: communityResourceId
     enclaveDefaultSettings: {
-      diagnosticDestination: enclave.?diagnosticDestination ?? 'EnclaveOnly'
+      diagnosticDestination: enclave.?diagnosticDestination ?? 'Both'
     }
     enclaveRoleAssignments: enclave.?enclaveRoleAssignments ?? []
     governedServiceList: requiredGovernedServices
@@ -422,14 +577,14 @@ module managedEnclaveModule '../../modules/common/missionVirtualEnclave.bicep' =
     }
     name: enclave.name
     networkConfiguration: {
-      allowSubnetCommunication: false
+      allowSubnetCommunication: enclave.?allowSubnetCommunication ?? true
       customCidrRange: enclave.addressSpaceCidr
       mode: 'CustomCidr'
       subnetConfigurations: [
         {
           networkPrefixSize: enclave.postgreSqlSubnet.networkPrefixSize
           subnetDelegation: 'Microsoft.DBforPostgreSQL/flexibleServers'
-          subnetName: delegatedSubnetName
+          subnetName: postgreSqlSubnetName
         }
         {
           networkPrefixSize: enclave.privateEndpointSubnet.networkPrefixSize
@@ -449,33 +604,80 @@ module managedEnclaveModule '../../modules/common/missionVirtualEnclave.bicep' =
   ]
 }
 
-var existingEnclaveSegments = split(enclave.mode == 'existing' ? enclave.resourceId : '/////////', '/')
-var existingEnclaveSubscriptionId = enclave.mode == 'existing' ? existingEnclaveSegments[2] : targetSubscriptionId
-var existingEnclaveResourceGroupName = enclave.mode == 'existing' ? existingEnclaveSegments[4] : managedEnclaveResourceGroupName
+var existingEnclaveSegments = split(enclave.mode != 'managed' ? enclave.resourceId : '/////////', '/')
+var existingEnclaveSubscriptionId = enclave.mode != 'managed' ? existingEnclaveSegments[2] : targetSubscriptionId
+var existingEnclaveResourceGroupName = enclave.mode != 'managed' ? existingEnclaveSegments[4] : managedEnclaveResourceGroupName
 var enclaveName = enclave.mode == 'managed' ? enclave.name : existingEnclaveSegments[8]
 
-module existingEnclaveModule './modules/existingEnclaveStateReader.bicep' = if (enclave.mode == 'existing') {
+module existingEnclaveModule './modules/existingEnclaveStateReader.bicep' = if (enclave.mode != 'managed') {
   name: 'postgresqlExistingEnclave'
   scope: resourceGroup(existingEnclaveSubscriptionId, existingEnclaveResourceGroupName)
   params: {
-    delegatedSubnetName: delegatedSubnetName
     enclaveName: enclaveName
-    privateEndpointSubnetName: privateEndpointSubnetName
+    postgreSqlSubnetName: enclave.mode == 'ReferenceOnly' ? postgreSqlSubnetName : ''
+    privateEndpointSubnetName: enclave.mode == 'ReferenceOnly'
+      ? privateEndpointSubnetName
+      : (enclave.privateEndpointSubnet.mode == 'Existing' ? privateEndpointSubnetName : '')
   }
 }
 
-var existingEnclaveMatchesLocation = enclave.mode == 'existing' ? toLower(existingEnclaveModule.outputs.location) == toLower(enclave.expectedConfiguration.location) : true
-var existingEnclaveMatchesCommunity = enclave.mode == 'existing' ? toLower(existingEnclaveModule.outputs.communityResourceId) == toLower(enclave.expectedConfiguration.communityResourceId) : true
-var existingEnclaveMatchesRbac = enclave.mode == 'existing' ? toLower(existingEnclaveModule.outputs.rbacInheritance) == toLower(enclave.expectedConfiguration.rbacInheritance) : true
-var existingEnclaveMatchesVisibility = enclave.mode == 'existing' ? toLower(existingEnclaveModule.outputs.workloadResourceVisibility) == toLower(enclave.expectedConfiguration.workloadResourceVisibility) : true
-var existingEnclaveMatchesSubnetCommunication = enclave.mode == 'existing' ? existingEnclaveModule.outputs.allowSubnetCommunication == false : true
-var existingEnclaveMatchesDelegatedSubnet = enclave.mode == 'existing' ? toLower(existingEnclaveModule.outputs.delegatedSubnet.resourceId) == toLower(enclave.expectedConfiguration.network.delegatedSubnet.resourceId) && toLower(existingEnclaveModule.outputs.delegatedSubnet.addressPrefix) == toLower(enclave.expectedConfiguration.network.delegatedSubnet.addressPrefix) && int(existingEnclaveModule.outputs.delegatedSubnet.networkPrefixSize) == enclave.expectedConfiguration.network.delegatedSubnet.networkPrefixSize && toLower(existingEnclaveModule.outputs.delegatedSubnet.networkSecurityGroupResourceId) == toLower(enclave.expectedConfiguration.network.delegatedSubnet.networkSecurityGroupResourceId) && toLower(existingEnclaveModule.outputs.delegatedSubnet.subnetDelegation) == toLower(enclave.expectedConfiguration.network.delegatedSubnet.subnetDelegation) : true
-var existingEnclaveMatchesPrivateEndpointSubnet = enclave.mode == 'existing' ? toLower(existingEnclaveModule.outputs.privateEndpointSubnet.resourceId) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.resourceId) && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.addressPrefix) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.addressPrefix) && int(existingEnclaveModule.outputs.privateEndpointSubnet.networkPrefixSize) == enclave.expectedConfiguration.network.privateEndpointSubnet.networkPrefixSize && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.networkSecurityGroupResourceId) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.networkSecurityGroupResourceId) && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.subnetDelegation) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.subnetDelegation) : true
-var existingEnclaveMatchesGovernedServices = enclave.mode == 'existing' ? toLower(string(existingEnclaveModule.outputs.governedServiceList)) == toLower(string(enclave.expectedConfiguration.governedServiceList)) : true
-var existingEnclaveMatchesApprovalPolicies = enclave.mode == 'existing' ? toLower(existingEnclaveModule.outputs.approvalPolicies.connectionCreation) == toLower(enclave.expectedConfiguration.approvalPolicies.connectionCreation) && toLower(existingEnclaveModule.outputs.approvalPolicies.connectionUpdate) == toLower(enclave.expectedConfiguration.approvalPolicies.connectionUpdate) && toLower(existingEnclaveModule.outputs.approvalPolicies.enclaveEndpointUpdate) == toLower(enclave.expectedConfiguration.approvalPolicies.enclaveEndpointUpdate) && toLower(existingEnclaveModule.outputs.approvalPolicies.enclaveMaintenanceMode) == toLower(enclave.expectedConfiguration.approvalPolicies.enclaveMaintenanceMode) : true
-var existingEnclaveCompatibility = existingEnclaveMatchesLocation && existingEnclaveMatchesCommunity && existingEnclaveMatchesRbac && existingEnclaveMatchesVisibility && existingEnclaveMatchesSubnetCommunication && existingEnclaveMatchesDelegatedSubnet && existingEnclaveMatchesPrivateEndpointSubnet && existingEnclaveMatchesGovernedServices && existingEnclaveMatchesApprovalPolicies
+var existingEnclaveMatchesLocation = enclave.mode != 'managed' ? toLower(existingEnclaveModule.outputs.location) == toLower(enclave.expectedConfiguration.location) : true
+var existingEnclaveMatchesCommunity = enclave.mode != 'managed' ? toLower(existingEnclaveModule.outputs.communityResourceId) == toLower(enclave.expectedConfiguration.communityResourceId) : true
+var existingEnclaveMatchesBastion = enclave.mode != 'managed' ? existingEnclaveModule.outputs.bastionEnabled == (enclave.expectedConfiguration.bastionEnabled == 'Enabled') : true
+var existingEnclaveMatchesDiagnosticDestination = enclave.mode != 'managed' ? toLower(existingEnclaveModule.outputs.diagnosticDestination) == toLower(enclave.expectedConfiguration.diagnosticDestination) : true
+var existingEnclaveMatchesRbac = enclave.mode != 'managed' ? toLower(existingEnclaveModule.outputs.rbacInheritance) == toLower(enclave.expectedConfiguration.rbacInheritance) : true
+var existingEnclaveMatchesVisibility = enclave.mode != 'managed' ? toLower(existingEnclaveModule.outputs.workloadResourceVisibility) == toLower(enclave.expectedConfiguration.workloadResourceVisibility) : true
+var existingEnclaveMatchesSubnetCommunication = enclave.mode != 'managed' ? existingEnclaveModule.outputs.allowSubnetCommunication == (enclave.expectedConfiguration.network.allowSubnetCommunication == 'Enabled') : true
+var existingEnclaveMatchesPostgreSqlSubnet = enclave.mode == 'ReferenceOnly' ? toLower(existingEnclaveModule.outputs.postgreSqlSubnet.resourceId) == toLower(enclave.expectedConfiguration.network.postgreSqlSubnet.resourceId) && toLower(existingEnclaveModule.outputs.postgreSqlSubnet.addressPrefix) == toLower(enclave.expectedConfiguration.network.postgreSqlSubnet.addressPrefix) && int(existingEnclaveModule.outputs.postgreSqlSubnet.networkPrefixSize) == enclave.expectedConfiguration.network.postgreSqlSubnet.networkPrefixSize && toLower(existingEnclaveModule.outputs.postgreSqlSubnet.networkSecurityGroupResourceId) == toLower(enclave.expectedConfiguration.network.postgreSqlSubnet.networkSecurityGroupResourceId) && toLower(existingEnclaveModule.outputs.postgreSqlSubnet.subnetDelegation) == toLower(enclave.expectedConfiguration.network.postgreSqlSubnet.subnetDelegation) : true
+var existingEnclaveMatchesPrivateEndpointSubnet = enclave.mode == 'ReferenceOnly'
+  ? toLower(existingEnclaveModule.outputs.privateEndpointSubnet.resourceId) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.resourceId) && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.addressPrefix) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.addressPrefix) && int(existingEnclaveModule.outputs.privateEndpointSubnet.networkPrefixSize) == enclave.expectedConfiguration.network.privateEndpointSubnet.networkPrefixSize && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.networkSecurityGroupResourceId) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.networkSecurityGroupResourceId) && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.subnetDelegation) == toLower(enclave.expectedConfiguration.network.privateEndpointSubnet.subnetDelegation)
+  : (enclave.mode == 'AdditiveSubnetUpdate' && enclave.privateEndpointSubnet.mode == 'Existing'
+      ? toLower(existingEnclaveModule.outputs.privateEndpointSubnet.resourceId) == toLower(enclave.privateEndpointSubnet.expectedConfiguration.resourceId) && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.addressPrefix) == toLower(enclave.privateEndpointSubnet.expectedConfiguration.addressPrefix) && int(existingEnclaveModule.outputs.privateEndpointSubnet.networkPrefixSize) == enclave.privateEndpointSubnet.expectedConfiguration.networkPrefixSize && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.networkSecurityGroupResourceId) == toLower(enclave.privateEndpointSubnet.expectedConfiguration.networkSecurityGroupResourceId) && toLower(existingEnclaveModule.outputs.privateEndpointSubnet.subnetDelegation) == toLower(enclave.privateEndpointSubnet.expectedConfiguration.subnetDelegation)
+      : true)
+var existingEnclaveMatchesGovernedServices = enclave.mode != 'managed' ? toLower(string(existingEnclaveModule.outputs.governedServiceList)) == toLower(string(enclave.expectedConfiguration.governedServiceList)) : true
+var existingConnectionCreationApproverIds = enclave.mode != 'managed' ? map(existingEnclaveModule.outputs.approvalSettings.connectionCreation.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var expectedConnectionCreationApproverIds = enclave.mode != 'managed' ? map(normalizedExpectedApprovalSettings.connectionCreation.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var existingConnectionUpdateApproverIds = enclave.mode != 'managed' ? map(existingEnclaveModule.outputs.approvalSettings.connectionUpdate.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var expectedConnectionUpdateApproverIds = enclave.mode != 'managed' ? map(normalizedExpectedApprovalSettings.connectionUpdate.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var existingEnclaveEndpointUpdateApproverIds = enclave.mode != 'managed' ? map(existingEnclaveModule.outputs.approvalSettings.enclaveEndpointUpdate.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var expectedEnclaveEndpointUpdateApproverIds = enclave.mode != 'managed' ? map(normalizedExpectedApprovalSettings.enclaveEndpointUpdate.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var existingEnclaveMaintenanceModeApproverIds = enclave.mode != 'managed' ? map(existingEnclaveModule.outputs.approvalSettings.enclaveMaintenanceMode.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var expectedEnclaveMaintenanceModeApproverIds = enclave.mode != 'managed' ? map(normalizedExpectedApprovalSettings.enclaveMaintenanceMode.mandatoryApprovers, approver => toLower(string(approver.approverEntraId))) : []
+var existingEnclaveMatchesConnectionCreationApproval = enclave.mode != 'managed'
+  ? toLower(existingEnclaveModule.outputs.approvalSettings.connectionCreation.approvalPolicy) == toLower(normalizedExpectedApprovalSettings.connectionCreation.approvalPolicy) && int(existingEnclaveModule.outputs.approvalSettings.connectionCreation.minimumApproversRequired) == normalizedExpectedApprovalSettings.connectionCreation.minimumApproversRequired && length(existingConnectionCreationApproverIds) == length(expectedConnectionCreationApproverIds) && length(filter(existingConnectionCreationApproverIds, approverId => !contains(expectedConnectionCreationApproverIds, approverId))) == 0 && length(filter(expectedConnectionCreationApproverIds, approverId => !contains(existingConnectionCreationApproverIds, approverId))) == 0
+  : true
+var existingEnclaveMatchesConnectionUpdateApproval = enclave.mode != 'managed'
+  ? toLower(existingEnclaveModule.outputs.approvalSettings.connectionUpdate.approvalPolicy) == toLower(normalizedExpectedApprovalSettings.connectionUpdate.approvalPolicy) && int(existingEnclaveModule.outputs.approvalSettings.connectionUpdate.minimumApproversRequired) == normalizedExpectedApprovalSettings.connectionUpdate.minimumApproversRequired && length(existingConnectionUpdateApproverIds) == length(expectedConnectionUpdateApproverIds) && length(filter(existingConnectionUpdateApproverIds, approverId => !contains(expectedConnectionUpdateApproverIds, approverId))) == 0 && length(filter(expectedConnectionUpdateApproverIds, approverId => !contains(existingConnectionUpdateApproverIds, approverId))) == 0
+  : true
+var existingEnclaveMatchesEnclaveEndpointUpdateApproval = enclave.mode != 'managed'
+  ? toLower(existingEnclaveModule.outputs.approvalSettings.enclaveEndpointUpdate.approvalPolicy) == toLower(normalizedExpectedApprovalSettings.enclaveEndpointUpdate.approvalPolicy) && int(existingEnclaveModule.outputs.approvalSettings.enclaveEndpointUpdate.minimumApproversRequired) == normalizedExpectedApprovalSettings.enclaveEndpointUpdate.minimumApproversRequired && length(existingEnclaveEndpointUpdateApproverIds) == length(expectedEnclaveEndpointUpdateApproverIds) && length(filter(existingEnclaveEndpointUpdateApproverIds, approverId => !contains(expectedEnclaveEndpointUpdateApproverIds, approverId))) == 0 && length(filter(expectedEnclaveEndpointUpdateApproverIds, approverId => !contains(existingEnclaveEndpointUpdateApproverIds, approverId))) == 0
+  : true
+var existingEnclaveMatchesEnclaveMaintenanceModeApproval = enclave.mode != 'managed'
+  ? toLower(existingEnclaveModule.outputs.approvalSettings.enclaveMaintenanceMode.approvalPolicy) == toLower(normalizedExpectedApprovalSettings.enclaveMaintenanceMode.approvalPolicy) && int(existingEnclaveModule.outputs.approvalSettings.enclaveMaintenanceMode.minimumApproversRequired) == normalizedExpectedApprovalSettings.enclaveMaintenanceMode.minimumApproversRequired && length(existingEnclaveMaintenanceModeApproverIds) == length(expectedEnclaveMaintenanceModeApproverIds) && length(filter(existingEnclaveMaintenanceModeApproverIds, approverId => !contains(expectedEnclaveMaintenanceModeApproverIds, approverId))) == 0 && length(filter(expectedEnclaveMaintenanceModeApproverIds, approverId => !contains(existingEnclaveMaintenanceModeApproverIds, approverId))) == 0
+  : true
+var existingEnclaveMatchesApprovalSettings = existingEnclaveMatchesConnectionCreationApproval && existingEnclaveMatchesConnectionUpdateApproval && existingEnclaveMatchesEnclaveEndpointUpdateApproval && existingEnclaveMatchesEnclaveMaintenanceModeApproval
+var additiveEnclaveHasRoundtrippableSharedSettings = enclave.mode != 'AdditiveSubnetUpdate'
+  ? true
+  : existingEnclaveModule.outputs.hasExplicitAllowSubnetCommunication && existingEnclaveModule.outputs.hasExplicitBastionEnabled && existingEnclaveModule.outputs.hasExplicitDiagnosticDestination
+var additiveRequestedSubnetNames = enclave.mode != 'AdditiveSubnetUpdate'
+  ? []
+  : concat([
+      toLower(enclave.postgreSqlSubnet.name)
+    ], enclave.privateEndpointSubnet.mode == 'New' ? [
+      toLower(enclave.privateEndpointSubnet.name)
+    ] : [])
+var additiveRequestedSubnetNamesAreDistinct = enclave.mode != 'AdditiveSubnetUpdate'
+  ? true
+  : (enclave.privateEndpointSubnet.mode != 'New' || toLower(enclave.postgreSqlSubnet.name) != toLower(enclave.privateEndpointSubnet.name))
+var additiveRequestedSubnetNamesAreAvailable = enclave.mode != 'AdditiveSubnetUpdate'
+  ? true
+  : length(filter(
+      existingEnclaveModule.outputs.subnetConfigurations,
+      subnet => contains(additiveRequestedSubnetNames, toLower(string(subnet.subnetName)))
+    )) == 0
+var existingEnclaveCompatibility = existingEnclaveMatchesLocation && existingEnclaveMatchesCommunity && existingEnclaveMatchesBastion && existingEnclaveMatchesDiagnosticDestination && existingEnclaveMatchesRbac && existingEnclaveMatchesVisibility && existingEnclaveMatchesSubnetCommunication && existingEnclaveMatchesPostgreSqlSubnet && existingEnclaveMatchesPrivateEndpointSubnet && existingEnclaveMatchesGovernedServices && existingEnclaveMatchesApprovalSettings
 
-module existingEnclaveCompatibilityGate './modules/requiredTextSubscriptionGate.bicep' = if (enclave.mode == 'existing') {
+module existingEnclaveCompatibilityGate './modules/requiredTextSubscriptionGate.bicep' = if (enclave.mode != 'managed') {
   name: 'existingEnclaveCompatibilityGate'
   params: {
     requiredText: existingEnclaveCompatibility ? 'compatible' : ''
@@ -485,25 +687,58 @@ module existingEnclaveCompatibilityGate './modules/requiredTextSubscriptionGate.
   ]
 }
 
-var effectiveEnclaveResourceId = enclave.mode == 'managed' ? managedEnclaveModule.outputs.resourceId : existingEnclaveModule.outputs.resourceId
-var effectiveEnclaveLocation = enclave.mode == 'managed' ? location : existingEnclaveModule.outputs.location
+module additiveSubnetRequestGate './modules/requiredTextSubscriptionGate.bicep' = if (enclave.mode == 'AdditiveSubnetUpdate') {
+  name: 'additiveSubnetRequestGate'
+  params: {
+    requiredText: additiveRequestedSubnetNamesAreDistinct && additiveRequestedSubnetNamesAreAvailable && additiveEnclaveHasRoundtrippableSharedSettings ? 'compatible' : ''
+  }
+  dependsOn: [
+    existingEnclaveModule
+  ]
+}
+
+module additiveEnclaveSubnetUpdateModule './modules/existingEnclaveAdditiveSubnetUpdater.bicep' = if (enclave.mode == 'AdditiveSubnetUpdate') {
+  name: 'postgresqlExistingEnclaveAdditiveSubnetUpdate'
+  scope: resourceGroup(existingEnclaveSubscriptionId, existingEnclaveResourceGroupName)
+  params: {
+    effectivePrivateEndpointSubnetName: privateEndpointSubnetName
+    enclaveName: enclaveName
+    postgreSqlSubnetName: enclave.postgreSqlSubnet.name
+    postgreSqlSubnetNetworkPrefixSize: enclave.postgreSqlSubnet.networkPrefixSize
+    privateEndpointSubnetName: enclave.privateEndpointSubnet.mode == 'New' ? enclave.privateEndpointSubnet.name : ''
+    privateEndpointSubnetNetworkPrefixSize: enclave.privateEndpointSubnet.mode == 'New' ? enclave.privateEndpointSubnet.networkPrefixSize : 0
+  }
+  dependsOn: [
+    additiveSubnetRequestGate
+    existingEnclaveCompatibilityGate
+  ]
+}
+
+var effectiveEnclaveResourceId = enclave.mode == 'managed'
+  ? managedEnclaveModule.outputs.resourceId
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.resourceId : additiveEnclaveSubnetUpdateModule.outputs.resourceId)
+var effectiveEnclaveLocation = enclave.mode == 'managed'
+  ? location
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.location : additiveEnclaveSubnetUpdateModule.outputs.location)
 var effectiveEnclaveManagedResourceGroupName = enclave.mode == 'managed'
   ? managedEnclaveModule.outputs.managedResourceGroupName
-  : existingEnclaveModule.outputs.managedResourceGroupName
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.managedResourceGroupName : additiveEnclaveSubnetUpdateModule.outputs.managedResourceGroupName)
 var effectiveEnclaveVnetName = enclave.mode == 'managed'
   ? managedEnclaveModule.outputs.enclaveVnetName
-  : existingEnclaveModule.outputs.vnetName
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.vnetName : additiveEnclaveSubnetUpdateModule.outputs.vnetName)
 var effectiveEnclaveVnetResourceId = enclave.mode == 'managed'
   ? managedEnclaveModule.outputs.enclaveVnetResourceId
-  : existingEnclaveModule.outputs.vnetResourceId
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.vnetResourceId : additiveEnclaveSubnetUpdateModule.outputs.vnetResourceId)
 var managedEnclaveSubnetConfigurations = enclave.mode == 'managed' ? managedEnclaveModule.outputs.subnetConfigurations : []
-var effectiveDelegatedSubnet = enclave.mode == 'managed'
-  ? filter(managedEnclaveSubnetConfigurations, subnet => toLower(string(subnet.subnetName)) == toLower(delegatedSubnetName))[0]
-  : existingEnclaveModule.outputs.delegatedSubnet
+var effectivePostgreSqlSubnet = enclave.mode == 'managed'
+  ? filter(managedEnclaveSubnetConfigurations, subnet => toLower(string(subnet.subnetName)) == toLower(postgreSqlSubnetName))[0]
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.postgreSqlSubnet : additiveEnclaveSubnetUpdateModule.outputs.postgreSqlSubnet)
 var effectivePrivateEndpointSubnet = enclave.mode == 'managed'
   ? filter(managedEnclaveSubnetConfigurations, subnet => toLower(string(subnet.subnetName)) == toLower(privateEndpointSubnetName))[0]
-  : existingEnclaveModule.outputs.privateEndpointSubnet
-var maintenancePrincipals = enclave.mode == 'managed' ? managedEnclaveMaintenancePrincipals : existingEnclaveModule.outputs.maintenancePrincipals
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.privateEndpointSubnet : additiveEnclaveSubnetUpdateModule.outputs.privateEndpointSubnet)
+var maintenancePrincipals = enclave.mode == 'managed'
+  ? managedEnclaveMaintenancePrincipals
+  : (enclave.mode == 'ReferenceOnly' ? existingEnclaveModule.outputs.maintenancePrincipals : additiveEnclaveSubnetUpdateModule.outputs.maintenancePrincipals)
 
 var workloadSegments = split(workload.mode == 'existing' ? workload.resourceId : '///////////', '/')
 var workloadRegistrationEnclaveName = workload.mode == 'managed' ? enclaveName : workloadSegments[8]
@@ -880,19 +1115,13 @@ module keyVaultPrivateEndpointModule '../../modules/common/privateEndpoint.bicep
   ]
 }
 
-output contractVersion string = '1.0'
+output contractVersion string = '2.0'
 output phaseA phaseAHandoffType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   communityResourceId: communityResourceId
   delegatedPrivateDnsZoneResourceId: foundation.privateDns.delegatedZone.mode == 'managed' ? delegatedDnsZoneModule.outputs.resourceId : existingDelegatedDnsZoneResource.id
-  delegatedSubnetAddressPrefix: enclave.mode == 'managed' ? '' : effectiveDelegatedSubnet.addressPrefix
-  delegatedSubnetName: delegatedSubnetName
-  delegatedSubnetNsgResourceId: enclave.mode == 'managed' ? '' : effectiveDelegatedSubnet.networkSecurityGroupResourceId
-  delegatedSubnetResourceId: enclave.mode == 'managed'
-    ? resourceId(targetSubscriptionId, effectiveEnclaveManagedResourceGroupName, 'Microsoft.Network/virtualNetworks/subnets', effectiveEnclaveVnetName, delegatedSubnetName)
-    : effectiveDelegatedSubnet.resourceId
   enclaveManagedResourceGroupName: effectiveEnclaveManagedResourceGroupName
-  enclaveOwnership: enclave.mode
+  enclaveOwnership: enclave.mode == 'managed' ? 'managed' : 'existing'
   enclaveResourceId: effectiveEnclaveResourceId
   enclaveVnetName: effectiveEnclaveVnetName
   enclaveVnetResourceId: effectiveEnclaveVnetId
@@ -908,6 +1137,10 @@ output phaseA phaseAHandoffType = {
   postgreSqlCmkKeyUri: cmkKeyUri
   postgreSqlDnsSuffix: postgreSqlDnsSuffix
   postgreSqlPrivateLinkZoneName: 'privatelink.${postgreSqlDnsSuffix}'
+  postgreSqlSubnetAddressPrefix: string(effectivePostgreSqlSubnet.addressPrefix)
+  postgreSqlSubnetName: postgreSqlSubnetName
+  postgreSqlSubnetNsgResourceId: string(effectivePostgreSqlSubnet.networkSecurityGroupResourceId)
+  postgreSqlSubnetResourceId: string(effectivePostgreSqlSubnet.resourceId)
   geoCmk: {
     mode: 'absent'
   }

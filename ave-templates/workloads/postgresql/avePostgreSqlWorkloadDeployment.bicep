@@ -6,9 +6,8 @@ type deploymentContextType = {
 }
 
 type phaseAType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   delegatedPrivateDnsZoneResourceId: string
-  delegatedSubnetResourceId: string
   geoCmk: {
     mode: 'absent'
   }
@@ -17,13 +16,14 @@ type phaseAType = {
   postgreSqlCmkKeyUri: string
   postgreSqlDnsSuffix: string
   postgreSqlPrivateLinkZoneName: string
+  postgreSqlSubnetResourceId: string
   targetSubscriptionId: string
   workloadResourceGroupId: string
   workloadResourceId: string
 }
 
 type foundationType = {
-  contractVersion: '1.0'
+  contractVersion: '2.0'
   communityEndpointResourceIds: string[]
   enclaveConnectionResourceIds: string[]
   phaseA: phaseAType
@@ -228,13 +228,13 @@ module foundationCloudGate './modules/requiredTextSubscriptionGate.bicep' = {
   }
 }
 
-output contractVersion string = '1.0'
+output contractVersion string = '2.0'
 output flexibleServerResourceId string = workloadDeployment.outputs.flexibleServerResourceId
 output flexibleServerName string = workloadDeployment.outputs.flexibleServerName
 output fullyQualifiedDomainName string = workloadDeployment.outputs.fullyQualifiedDomainName
 output workloadResourceId string = foundation.phaseA.workloadResourceId
 output workloadResourceGroupId string = foundation.phaseA.workloadResourceGroupId
-output delegatedSubnetResourceId string = foundation.phaseA.delegatedSubnetResourceId
+output postgreSqlSubnetResourceId string = foundation.phaseA.postgreSqlSubnetResourceId
 output delegatedPrivateDnsZoneResourceId string = foundation.phaseA.delegatedPrivateDnsZoneResourceId
 output serverOwnership 'managed' | 'existing' = workloadDeployment.outputs.serverOwnership
 output effectiveSku postgreSqlSkuType = workloadDeployment.outputs.effectiveSku

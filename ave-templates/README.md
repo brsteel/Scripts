@@ -36,7 +36,7 @@
 
 - Key Vault defaults to RBAC authorization, purge protection, denied-by-default networking, and public network access disabled.
 - Storage defaults to HTTPS-only, TLS 1.2, denied-by-default networking, public network access disabled, shared key access disabled, and blob public access disabled.
-- Mission enclave defaults are fail-closed for broad visibility and inheritance: `rbacInheritance = 'Disabled'`, `workloadResourceVisibility = 'Disabled'`, and `allowSubnetCommunication = false` unless the caller opts in.
+- Mission enclave defaults keep broad visibility fail-closed while defaulting shared-network features on: `rbacInheritance = 'Disabled'`, `workloadResourceVisibility = 'Disabled'`, `allowSubnetCommunication = true`, `bastionEnabled = true`, and `diagnosticDestination = 'Both'` unless the caller overrides them.
 - No module hardcodes cloud suffix tables; suffixes are derived from `environment()`.
 
 ## Workload profile guidance
@@ -49,31 +49,44 @@ Workload-specific profiles should:
 
 ## PostgreSQL workload profile
 
-[workloads/postgresql/](C:/repostitories/Scripts.worktrees/postgresql-workload-implementation/ave-templates/workloads/postgresql) provides a thin PostgreSQL composition over the local common modules:
+[workloads/postgresql/](./workloads/postgresql/) provides a thin PostgreSQL composition over the local common modules:
 
-- [avePostgreSqlEnclaveDeployment.bicep](C:/repostitories/Scripts.worktrees/postgresql-workload-implementation/ave-templates/workloads/postgresql/avePostgreSqlEnclaveDeployment.bicep) creates or references the Mission community, Mission enclave, workload registration, CMK identity, private Key Vault, CMK, private DNS, and Key Vault private endpoint, then emits a frozen Phase A handoff object.
-- [avePostgreSqlEnclaveNetworkFinalization.bicep](C:/repostitories/Scripts.worktrees/postgresql-workload-implementation/ave-templates/workloads/postgresql/avePostgreSqlEnclaveNetworkFinalization.bicep) creates or references supported Mission community endpoints and enclave connections without mutating Mission-managed VNet or subnet resources, then emits a Phase B foundation handoff object.
-- [avePostgreSqlWorkloadDeployment.bicep](C:/repostitories/Scripts.worktrees/postgresql-workload-implementation/ave-templates/workloads/postgresql/avePostgreSqlWorkloadDeployment.bicep) creates or references a PostgreSQL Flexible Server in the workload resource group using Entra-only authentication, customer-managed keys, public network disabled delegated-subnet mode, and private DNS.
+- [avePostgreSqlEnclaveDeployment.bicep](./workloads/postgresql/avePostgreSqlEnclaveDeployment.bicep) creates or references the Mission community, Mission enclave, workload registration, CMK identity, private Key Vault, CMK, private DNS, and Key Vault private endpoint, then emits a frozen Phase A handoff object.
+- [avePostgreSqlEnclaveNetworkFinalization.bicep](./workloads/postgresql/avePostgreSqlEnclaveNetworkFinalization.bicep) creates or references supported Mission community endpoints and enclave connections without mutating Mission-managed VNet or subnet resources, then emits a Phase B foundation handoff object.
+- [avePostgreSqlWorkloadDeployment.bicep](./workloads/postgresql/avePostgreSqlWorkloadDeployment.bicep) creates or references a PostgreSQL Flexible Server in the workload resource group using Entra-only authentication, customer-managed keys, public network disabled delegated-subnet mode, and private DNS.
+- [PostgreSQL workload deployment guide](./workloads/postgresql/README.md) documents prerequisites, parameter construction, defaults, compatibility rules, and example orchestration patterns.
 
 ### Secure defaults
 
 - PostgreSQL auth is Entra-only: `activeDirectoryAuth = Enabled`, `passwordAuth = Disabled`.
 - Public network access is disabled by delegated-subnet private deployment; no public firewall rules are authored.
-- New enclaves force a PostgreSQL-safe Mission profile: `allowSubnetCommunication = false`, `rbacInheritance = Disabled`, `workloadResourceVisibility = Disabled`, and governed services include PostgreSQL, Key Vault, and Private DNS Zones with `Allow/Enabled/Enforce`.
+- Managed PostgreSQL enclaves default to `allowSubnetCommunication = true`, `bastionEnabled = true`, `diagnosticDestination = Both`, `rbacInheritance = Disabled`, and `workloadResourceVisibility = Disabled`, while governed services include PostgreSQL, Key Vault, and Private DNS Zones with `Allow/Enabled/Enforce`.
+- Managed PostgreSQL enclave approval settings are explicit input. `Required` approvals must include at least one mandatory approver object ID and `minimumApproversRequired >= 1`; `NotRequired` approvals normalize to an empty approver list with minimum `0`.
 - DNS suffixes are derived from `environment()` and `environment().resourceManager`; no named-cloud lookup table is used.
 - Managed Key Vault deployments are RBAC-only, purge-protected, private-only, and paired with a private endpoint plus private DNS.
 
-### Existing enclave limitations
+### Existing enclave behavior and limitations
 
 - The PostgreSQL profile never writes NSGs, route tables, service endpoints, or subnet properties. Mission owns those resources.
-- Public `Microsoft.Mission` `2026-03-01-preview` documentation exposes create/update surfaces for enclaves, community endpoints, enclave connections, and workload registrations, but **does not expose any dedicated additive subnet API**. Existing enclaves therefore must already contain a compatible delegated PostgreSQL subnet before this profile can be used.
-- Existing enclaves are reference-only by default. The template cross-checks core compatibility for community binding, location, approval policies, RBAC visibility posture, governed services, delegated subnet, and private-endpoint subnet. If those checks fail, deployment validation fails closed before downstream resource creation.
-- Multiple workloads can share an enclave only when the shared enclave settings remain compatible and each workload uses its own compatible delegated PostgreSQL subnet.
+- Existing enclaves must explicitly choose `ReferenceOnly` or `AdditiveSubnetUpdate`.
+- `ReferenceOnly` is the safe default. It cross-checks community binding, location, approval policy plus approver/count shape, Bastion, diagnostics destination, RBAC visibility posture, governed services, PostgreSQL subnet, and private-endpoint subnet before consuming the enclave.
+- `AdditiveSubnetUpdate` inventories every live Mission subnet configuration, fails closed on subnet-name collisions, appends only genuinely new dedicated subnet requests, and sends the complete subnet union back through `Microsoft.Mission/virtualEnclaves@2026-03-01-preview`. It preserves the live enclave identity, tags, CIDR/network settings, approvals, Bastion, diagnostics, RBAC, maintenance, monitoring, governed services, and role assignments instead of writing `Microsoft.Network/virtualNetworks/subnets` directly.
+- The additive mode still relies on a preview RP shape and on ARM/Bicep successfully roundtripping the currently documented writable virtual-enclave properties. Treat it as a preview-path change surface and validate generated ARM before deployment.
+- Multiple workloads can share an enclave only when the shared enclave settings remain compatible and each workload uses non-colliding dedicated PostgreSQL and private-endpoint subnets.
+- Phase A/B handoff contracts are now `2.0` and carry actual PostgreSQL/private-endpoint CIDR outputs from Mission for both managed and existing-enclave flows.
+
+### Supporting resource idempotency
+
+- Key Vault private endpoints use deterministic names (`${keyVaultName}-pe`).
+- Private DNS VNet links use deterministic names (`link-${phaseToken}`).
+- The CMK role assignment uses a deterministic GUID derived from scope, principal, role, and condition.
+- Those resources intentionally use deterministic create/update semantics rather than separate managed/existing switches.
 
 ### Examples
 
-- [postgresql-secure-new-example.bicep](C:/repostitories/Scripts.worktrees/postgresql-workload-implementation/ave-templates/workloads/postgresql/examples/postgresql-secure-new-example.bicep) shows a fully managed secure-new flow across Phase A, network finalization, and PostgreSQL server deployment.
-- [postgresql-existing-compatible-example.bicep](C:/repostitories/Scripts.worktrees/postgresql-workload-implementation/ave-templates/workloads/postgresql/examples/postgresql-existing-compatible-example.bicep) shows an existing-compatible flow with reference-only enclave networking and an existing PostgreSQL server contract.
+- [postgresql-secure-new-example.bicep](./workloads/postgresql/examples/postgresql-secure-new-example.bicep) shows a fully managed secure-new flow across Phase A, network finalization, and PostgreSQL server deployment.
+- [postgresql-existing-compatible-example.bicep](./workloads/postgresql/examples/postgresql-existing-compatible-example.bicep) shows an existing-compatible flow with reference-only enclave networking and an existing PostgreSQL server contract.
+- [postgresql-existing-additive-subnet-example.bicep](./workloads/postgresql/examples/postgresql-existing-additive-subnet-example.bicep) shows the explicit additive-subnet mode for an existing enclave while still keeping Mission network ownership intact.
 
 ## Prerequisites
 
@@ -82,7 +95,7 @@ Workload-specific profiles should:
 
 ## Validation commands
 
-Run from [ave-templates/](C:/repostitories/Scripts.worktrees/postgresql-workload-implementation/ave-templates):
+Run from `ave-templates/`:
 
 ```powershell
 bicep build .\examples\foundation-example.bicep
@@ -93,6 +106,7 @@ bicep build .\workloads\postgresql\avePostgreSqlEnclaveNetworkFinalization.bicep
 bicep build .\workloads\postgresql\avePostgreSqlWorkloadDeployment.bicep
 bicep build .\workloads\postgresql\examples\postgresql-secure-new-example.bicep
 bicep build .\workloads\postgresql\examples\postgresql-existing-compatible-example.bicep
+bicep build .\workloads\postgresql\examples\postgresql-existing-additive-subnet-example.bicep
 ```
 
 If `bicep lint` is available in the local CLI build, lint the same entry points.

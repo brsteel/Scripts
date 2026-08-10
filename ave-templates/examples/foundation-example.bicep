@@ -277,11 +277,11 @@ module virtualEnclaveModule '../modules/common/missionVirtualEnclave.bicep' = {
       userAssignedIdentityModule.outputs.resourceId
     ]
     tags: tags
-    bastionEnabled: false
+    bastionEnabled: true
     rbacInheritance: 'Disabled'
     workloadResourceVisibility: 'Disabled'
     enclaveDefaultSettings: {
-      diagnosticDestination: 'EnclaveOnly'
+      diagnosticDestination: 'Both'
     }
     governedServiceList: [
       {
@@ -300,18 +300,38 @@ module virtualEnclaveModule '../modules/common/missionVirtualEnclave.bicep' = {
     approvalSettings: {
       connectionCreation: {
         approvalPolicy: 'Required'
+        mandatoryApprovers: [
+          {
+            approverEntraId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+          }
+        ]
         minimumApproversRequired: 1
       }
       connectionUpdate: {
         approvalPolicy: 'Required'
+        mandatoryApprovers: [
+          {
+            approverEntraId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+          }
+        ]
         minimumApproversRequired: 1
       }
       enclaveEndpointUpdate: {
         approvalPolicy: 'Required'
+        mandatoryApprovers: [
+          {
+            approverEntraId: 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+          }
+        ]
         minimumApproversRequired: 1
       }
       enclaveMaintenanceMode: {
         approvalPolicy: 'Required'
+        mandatoryApprovers: [
+          {
+            approverEntraId: 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+          }
+        ]
         minimumApproversRequired: 1
       }
     }
@@ -321,7 +341,7 @@ module virtualEnclaveModule '../modules/common/missionVirtualEnclave.bicep' = {
     networkConfiguration: {
       mode: 'CustomCidr'
       customCidrRange: '10.250.0.0/16'
-      allowSubnetCommunication: false
+      allowSubnetCommunication: true
       subnetConfigurations: [
         {
           subnetName: 'control'

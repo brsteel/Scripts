@@ -28,6 +28,44 @@ module phaseA '../avePostgreSqlEnclaveDeployment.bicep' = {
       name: 'contoso-enclave'
       resourceGroupName: 'rg-contoso-enclave'
       addressSpaceCidr: '10.250.0.0/16'
+      approvalSettings: {
+        connectionCreation: {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: [
+            {
+              approverEntraId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+            }
+          ]
+          minimumApproversRequired: 1
+        }
+        connectionUpdate: {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: [
+            {
+              approverEntraId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+            }
+          ]
+          minimumApproversRequired: 1
+        }
+        enclaveEndpointUpdate: {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: [
+            {
+              approverEntraId: 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+            }
+          ]
+          minimumApproversRequired: 1
+        }
+        enclaveMaintenanceMode: {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: [
+            {
+              approverEntraId: 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+            }
+          ]
+          minimumApproversRequired: 1
+        }
+      }
       postgreSqlSubnet: {
         name: 'snet-postgresql'
         networkPrefixSize: 24
