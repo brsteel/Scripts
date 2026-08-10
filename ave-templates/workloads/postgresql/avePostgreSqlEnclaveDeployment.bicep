@@ -80,18 +80,6 @@ type approvalSettingsType = {
   enclaveMaintenanceMode: approvalSettingType
 }
 
-type managedGovernanceHardeningType = {
-  mode: 'ActivateFinalApprovalSettings'
-  approvalSettings: approvalSettingsType
-}
-
-type noGovernanceHardeningType = {
-  mode: 'NotApplicable'
-}
-
-@discriminator('mode')
-type governanceHardeningType = managedGovernanceHardeningType | noGovernanceHardeningType
-
 type governedServiceExpectationType = {
   enforcement: 'Enabled'
   option: 'Allow'
@@ -143,7 +131,7 @@ type managedEnclaveType = {
   name: string
   resourceGroupName: string
   addressSpaceCidr: string
-  approvalSettings: approvalSettingsType
+  approvalSettings: approvalSettingsType?
   postgreSqlSubnet: subnetRequestType
   privateEndpointSubnet: subnetRequestType
   allowSubnetCommunication: bool?
@@ -310,7 +298,6 @@ type phaseAHandoffType = {
   enclaveResourceId: string
   enclaveVnetName: string
   enclaveVnetResourceId: string
-  governanceHardening: governanceHardeningType
   keyVaultPrivateEndpointResourceId: string
   keyVaultResourceId: string
   location: string
@@ -468,7 +455,7 @@ var privateEndpointSubnetName = enclave.mode == 'managed'
     : (enclave.privateEndpointSubnet.mode == 'Existing'
         ? enclave.privateEndpointSubnet.expectedConfiguration.name
         : enclave.privateEndpointSubnet.name)
-var initialManagedApprovalSettings = enclave.mode == 'managed' ? {
+var defaultManagedApprovalSettings = {
   connectionCreation: {
     approvalPolicy: 'NotRequired'
   }
@@ -481,15 +468,10 @@ var initialManagedApprovalSettings = enclave.mode == 'managed' ? {
   enclaveMaintenanceMode: {
     approvalPolicy: 'NotRequired'
   }
-} : {}
-var governanceHardening = enclave.mode == 'managed'
-  ? {
-      mode: 'ActivateFinalApprovalSettings'
-      approvalSettings: enclave.approvalSettings
-    }
-  : {
-      mode: 'NotApplicable'
-    }
+}
+var normalizedManagedApprovalSettings = enclave.mode == 'managed'
+  ? enclave.?approvalSettings ?? defaultManagedApprovalSettings
+  : defaultManagedApprovalSettings
 var normalizedExpectedApprovalSettings = enclave.mode == 'managed' ? {} : {
   connectionCreation: enclave.expectedConfiguration.approvalSettings.connectionCreation.approvalPolicy == 'Required'
     ? {
@@ -550,7 +532,7 @@ module managedEnclaveModule '../../modules/common/missionVirtualEnclave.bicep' =
   name: 'postgresqlManagedEnclave'
   scope: resourceGroup(targetSubscriptionId, managedEnclaveResourceGroupName)
   params: {
-    approvalSettings: initialManagedApprovalSettings
+    approvalSettings: normalizedManagedApprovalSettings
     bastionEnabled: enclave.?bastionEnabled ?? true
     communityResourceId: communityResourceId
     enclaveDefaultSettings: {
@@ -1114,7 +1096,6 @@ output phaseA phaseAHandoffType = {
   enclaveResourceId: effectiveEnclaveResourceId
   enclaveVnetName: effectiveEnclaveVnetName
   enclaveVnetResourceId: effectiveEnclaveVnetId
-  governanceHardening: governanceHardening
   keyVaultPrivateEndpointResourceId: keyVaultPrivateEndpointModule.outputs.resourceId
   keyVaultResourceId: keyVaultResourceId
   location: effectiveEnclaveLocation

@@ -78,28 +78,100 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
         liveEnclave: '''
 [reference(resourceId('Microsoft.Mission/virtualEnclaves', parameters('enclaveName')), '2026-03-01-preview', 'Full')]
 '''
+        liveProperties: '''
+[coalesce(tryGet(variables('liveEnclave'), 'properties'), createObject())]
+'''
+        liveIdentity: '''
+[coalesce(tryGet(variables('liveEnclave'), 'identity'), createObject())]
+'''
+        liveIdentityType: '''
+[coalesce(tryGet(variables('liveIdentity'), 'type'), 'None')]
+'''
+        liveUserAssignedIdentities: '''
+[coalesce(tryGet(variables('liveIdentity'), 'userAssignedIdentities'), createObject())]
+'''
+        identityRequest: '''
+[union(
+  createObject('type', variables('liveIdentityType')),
+  if(
+    or(
+      equals(variables('liveIdentityType'), 'UserAssigned'),
+      equals(variables('liveIdentityType'), 'SystemAssigned,UserAssigned')
+    ),
+    createObject(
+      'userAssignedIdentities',
+      toObject(
+        items(variables('liveUserAssignedIdentities')),
+        lambda('identity', lambdaVariables('identity').key),
+        lambda('identity', createObject())
+      )
+    ),
+    createObject()
+  )
+)]
+'''
+        liveEnclaveVirtualNetwork: '''
+[coalesce(tryGet(variables('liveProperties'), 'enclaveVirtualNetwork'), createObject())]
+'''
         liveSubnetConfigurations: '''
-[variables('liveEnclave').properties.enclaveVirtualNetwork.subnetConfigurations]
+[coalesce(tryGet(variables('liveEnclaveVirtualNetwork'), 'subnetConfigurations'), createArray())]
 '''
         existingSubnetConfigurations: '''
-[map(variables('liveSubnetConfigurations'), lambda('subnet', if(empty(lambdaVariables('subnet').subnetDelegation), createObject('networkPrefixSize', lambdaVariables('subnet').networkPrefixSize, 'subnetName', lambdaVariables('subnet').subnetName), createObject('networkPrefixSize', lambdaVariables('subnet').networkPrefixSize, 'subnetDelegation', lambdaVariables('subnet').subnetDelegation, 'subnetName', lambdaVariables('subnet').subnetName))))]
+[map(
+  variables('liveSubnetConfigurations'),
+  lambda(
+    'subnet',
+    union(
+      createObject(
+        'networkPrefixSize', lambdaVariables('subnet').networkPrefixSize,
+        'subnetName', lambdaVariables('subnet').subnetName
+      ),
+      if(
+        empty(coalesce(tryGet(lambdaVariables('subnet'), 'subnetDelegation'), '')),
+        createObject(),
+        createObject('subnetDelegation', lambdaVariables('subnet').subnetDelegation)
+      )
+    )
+  )
+)]
 '''
         newSubnetConfigurations: '''
-[concat(createArray(createObject('networkPrefixSize', parameters('postgreSqlSubnetNetworkPrefixSize'), 'subnetDelegation', 'Microsoft.DBforPostgreSQL/flexibleServers', 'subnetName', parameters('postgreSqlSubnetName'))), if(empty(parameters('privateEndpointSubnetName')), createArray(), createArray(createObject('networkPrefixSize', parameters('privateEndpointSubnetNetworkPrefixSize'), 'subnetName', parameters('privateEndpointSubnetName')))))]
+[concat(
+  createArray(
+    createObject(
+      'networkPrefixSize', parameters('postgreSqlSubnetNetworkPrefixSize'),
+      'subnetDelegation', 'Microsoft.DBforPostgreSQL/flexibleServers',
+      'subnetName', parameters('postgreSqlSubnetName')
+    )
+  ),
+  if(
+    empty(parameters('privateEndpointSubnetName')),
+    createArray(),
+    createArray(
+      createObject(
+        'networkPrefixSize', parameters('privateEndpointSubnetNetworkPrefixSize'),
+        'subnetName', parameters('privateEndpointSubnetName')
+      )
+    )
+  )
+)]
 '''
         mergedSubnetConfigurations: '''
 [concat(variables('existingSubnetConfigurations'), variables('newSubnetConfigurations'))]
+'''
+        liveApprovalSettings: '''
+[coalesce(tryGet(variables('liveProperties'), 'approvalSettings'), createObject())]
 '''
         normalizedApprovalSettings: '''
 [union(
   createObject(
     'connectionCreation',
     if(
-      equals(coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'connectionCreation'), 'approvalPolicy'), 'NotRequired'), 'Required'),
+      equals(coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'connectionCreation'), 'approvalPolicy'), 'NotRequired'), 'Required'),
       createObject(
         'approvalPolicy', 'Required',
-        'mandatoryApprovers', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'connectionCreation'), 'mandatoryApprovers'), createArray()),
-        'minimumApproversRequired', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'connectionCreation'), 'minimumApproversRequired'), 0)
+        'mandatoryApprovers', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'connectionCreation'), 'mandatoryApprovers'), createArray()),
+        'minimumApproversRequired', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'connectionCreation'), 'minimumApproversRequired'), 0)
       ),
       createObject(
         'approvalPolicy', 'NotRequired',
@@ -111,11 +183,11 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
   createObject(
     'connectionUpdate',
     if(
-      equals(coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'connectionUpdate'), 'approvalPolicy'), 'NotRequired'), 'Required'),
+      equals(coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'connectionUpdate'), 'approvalPolicy'), 'NotRequired'), 'Required'),
       createObject(
         'approvalPolicy', 'Required',
-        'mandatoryApprovers', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'connectionUpdate'), 'mandatoryApprovers'), createArray()),
-        'minimumApproversRequired', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'connectionUpdate'), 'minimumApproversRequired'), 0)
+        'mandatoryApprovers', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'connectionUpdate'), 'mandatoryApprovers'), createArray()),
+        'minimumApproversRequired', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'connectionUpdate'), 'minimumApproversRequired'), 0)
       ),
       createObject(
         'approvalPolicy', 'NotRequired',
@@ -127,11 +199,11 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
   createObject(
     'enclaveEndpointUpdate',
     if(
-      equals(coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'enclaveEndpointUpdate'), 'approvalPolicy'), 'NotRequired'), 'Required'),
+      equals(coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'enclaveEndpointUpdate'), 'approvalPolicy'), 'NotRequired'), 'Required'),
       createObject(
         'approvalPolicy', 'Required',
-        'mandatoryApprovers', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'enclaveEndpointUpdate'), 'mandatoryApprovers'), createArray()),
-        'minimumApproversRequired', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'enclaveEndpointUpdate'), 'minimumApproversRequired'), 0)
+        'mandatoryApprovers', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'enclaveEndpointUpdate'), 'mandatoryApprovers'), createArray()),
+        'minimumApproversRequired', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'enclaveEndpointUpdate'), 'minimumApproversRequired'), 0)
       ),
       createObject(
         'approvalPolicy', 'NotRequired',
@@ -143,11 +215,11 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
   createObject(
     'enclaveMaintenanceMode',
     if(
-      equals(coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'enclaveMaintenanceMode'), 'approvalPolicy'), 'NotRequired'), 'Required'),
+      equals(coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'enclaveMaintenanceMode'), 'approvalPolicy'), 'NotRequired'), 'Required'),
       createObject(
         'approvalPolicy', 'Required',
-        'mandatoryApprovers', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'enclaveMaintenanceMode'), 'mandatoryApprovers'), createArray()),
-        'minimumApproversRequired', coalesce(tryGet(tryGet(tryGet(tryGet(variables('liveEnclave'), 'properties'), 'approvalSettings'), 'enclaveMaintenanceMode'), 'minimumApproversRequired'), 0)
+        'mandatoryApprovers', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'enclaveMaintenanceMode'), 'mandatoryApprovers'), createArray()),
+        'minimumApproversRequired', coalesce(tryGet(tryGet(variables('liveApprovalSettings'), 'enclaveMaintenanceMode'), 'minimumApproversRequired'), 0)
       ),
       createObject(
         'approvalPolicy', 'NotRequired',
@@ -158,11 +230,132 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
   )
 )]
 '''
+        liveEnclaveDefaultSettings: '''
+[coalesce(tryGet(variables('liveProperties'), 'enclaveDefaultSettings'), createObject())]
+'''
+        liveDedicatedHubResourceId: '''
+[coalesce(tryGet(variables('liveProperties'), 'dedicatedHubResourceId'), '')]
+'''
+        liveEnclaveRoleAssignments: '''
+[coalesce(tryGet(variables('liveProperties'), 'enclaveRoleAssignments'), createArray())]
+'''
+        liveGovernedServiceList: '''
+[coalesce(tryGet(variables('liveProperties'), 'governedServiceList'), createArray())]
+'''
+        liveMaintenanceModeConfiguration: '''
+[coalesce(tryGet(variables('liveProperties'), 'maintenanceModeConfiguration'), createObject())]
+'''
+        liveMonitoringSettings: '''
+[coalesce(tryGet(variables('liveProperties'), 'monitoringSettings'), createObject())]
+'''
+        liveWorkloadRoleAssignments: '''
+[coalesce(tryGet(variables('liveProperties'), 'workloadRoleAssignments'), createArray())]
+'''
+        liveRbacInheritance: '''
+[coalesce(tryGet(variables('liveProperties'), 'rbacInheritance'), '')]
+'''
+        liveWorkloadResourceVisibility: '''
+[coalesce(tryGet(variables('liveProperties'), 'workloadResourceVisibility'), '')]
+'''
+        liveCustomCidrRange: '''
+[coalesce(tryGet(variables('liveEnclaveVirtualNetwork'), 'customCidrRange'), '')]
+'''
+        liveNetworkSize: '''
+[coalesce(tryGet(variables('liveEnclaveVirtualNetwork'), 'networkSize'), '')]
+'''
+        liveNetworkName: '''
+[coalesce(tryGet(variables('liveEnclaveVirtualNetwork'), 'networkName'), '')]
+'''
         enclaveVirtualNetwork: '''
-[union(createObject('allowSubnetCommunication', bool(tryGet(variables('liveEnclave').properties.enclaveVirtualNetwork, 'allowSubnetCommunication')), 'subnetConfigurations', variables('mergedSubnetConfigurations')), if(empty(variables('liveEnclave').properties.enclaveVirtualNetwork.customCidrRange), createObject('networkSize', variables('liveEnclave').properties.enclaveVirtualNetwork.networkSize), createObject('customCidrRange', variables('liveEnclave').properties.enclaveVirtualNetwork.customCidrRange, 'networkSize', 'custom')), if(empty(variables('liveEnclave').properties.enclaveVirtualNetwork.networkName), createObject(), createObject('networkName', variables('liveEnclave').properties.enclaveVirtualNetwork.networkName)))]
+[union(
+  createObject(
+    'subnetConfigurations', variables('mergedSubnetConfigurations')
+  ),
+  if(
+    contains(variables('liveEnclaveVirtualNetwork'), 'allowSubnetCommunication'),
+    createObject('allowSubnetCommunication', bool(tryGet(variables('liveEnclaveVirtualNetwork'), 'allowSubnetCommunication'))),
+    createObject()
+  ),
+  if(
+    empty(variables('liveCustomCidrRange')),
+    if(
+      empty(variables('liveNetworkSize')),
+      createObject(),
+      createObject('networkSize', variables('liveNetworkSize'))
+    ),
+    createObject(
+      'customCidrRange', variables('liveCustomCidrRange'),
+      'networkSize', 'custom'
+    )
+  ),
+  if(
+    empty(variables('liveNetworkName')),
+    createObject(),
+    createObject('networkName', variables('liveNetworkName'))
+  )
+)]
 '''
         updatedProperties: '''
-[union(createObject('bastionEnabled', bool(tryGet(variables('liveEnclave').properties, 'bastionEnabled')), 'communityResourceId', variables('liveEnclave').properties.communityResourceId, 'enclaveDefaultSettings', createObject('diagnosticDestination', string(tryGet(variables('liveEnclave').properties.enclaveDefaultSettings, 'diagnosticDestination'))), 'enclaveVirtualNetwork', variables('enclaveVirtualNetwork'), 'approvalSettings', variables('normalizedApprovalSettings'), 'rbacInheritance', variables('liveEnclave').properties.rbacInheritance, 'workloadResourceVisibility', variables('liveEnclave').properties.workloadResourceVisibility), if(empty(variables('liveEnclave').properties.dedicatedHubResourceId), createObject(), createObject('dedicatedHubResourceId', variables('liveEnclave').properties.dedicatedHubResourceId)), if(empty(variables('liveEnclave').properties.enclaveRoleAssignments), createObject(), createObject('enclaveRoleAssignments', variables('liveEnclave').properties.enclaveRoleAssignments)), if(empty(variables('liveEnclave').properties.governedServiceList), createObject(), createObject('governedServiceList', variables('liveEnclave').properties.governedServiceList)), if(empty(variables('liveEnclave').properties.maintenanceModeConfiguration), createObject(), createObject('maintenanceModeConfiguration', variables('liveEnclave').properties.maintenanceModeConfiguration)), if(empty(variables('liveEnclave').properties.monitoringSettings), createObject(), createObject('monitoringSettings', variables('liveEnclave').properties.monitoringSettings)), if(empty(variables('liveEnclave').properties.workloadRoleAssignments), createObject(), createObject('workloadRoleAssignments', variables('liveEnclave').properties.workloadRoleAssignments)))]
+[union(
+  createObject(
+    'communityResourceId', variables('liveProperties').communityResourceId,
+    'enclaveVirtualNetwork', variables('enclaveVirtualNetwork'),
+    'approvalSettings', variables('normalizedApprovalSettings')
+  ),
+  if(
+    contains(variables('liveProperties'), 'bastionEnabled'),
+    createObject('bastionEnabled', bool(tryGet(variables('liveProperties'), 'bastionEnabled'))),
+    createObject()
+  ),
+  if(
+    contains(variables('liveEnclaveDefaultSettings'), 'diagnosticDestination'),
+    createObject(
+      'enclaveDefaultSettings',
+      createObject('diagnosticDestination', string(tryGet(variables('liveEnclaveDefaultSettings'), 'diagnosticDestination')))
+    ),
+    createObject()
+  ),
+  if(
+    empty(variables('liveRbacInheritance')),
+    createObject(),
+    createObject('rbacInheritance', variables('liveRbacInheritance'))
+  ),
+  if(
+    empty(variables('liveWorkloadResourceVisibility')),
+    createObject(),
+    createObject('workloadResourceVisibility', variables('liveWorkloadResourceVisibility'))
+  ),
+  if(
+    empty(variables('liveDedicatedHubResourceId')),
+    createObject(),
+    createObject('dedicatedHubResourceId', variables('liveDedicatedHubResourceId'))
+  ),
+  if(
+    empty(variables('liveEnclaveRoleAssignments')),
+    createObject(),
+    createObject('enclaveRoleAssignments', variables('liveEnclaveRoleAssignments'))
+  ),
+  if(
+    empty(variables('liveGovernedServiceList')),
+    createObject(),
+    createObject('governedServiceList', variables('liveGovernedServiceList'))
+  ),
+  if(
+    empty(variables('liveMaintenanceModeConfiguration')),
+    createObject(),
+    createObject('maintenanceModeConfiguration', variables('liveMaintenanceModeConfiguration'))
+  ),
+  if(
+    empty(variables('liveMonitoringSettings')),
+    createObject(),
+    createObject('monitoringSettings', variables('liveMonitoringSettings'))
+  ),
+  if(
+    empty(variables('liveWorkloadRoleAssignments')),
+    createObject(),
+    createObject('workloadRoleAssignments', variables('liveWorkloadRoleAssignments'))
+  )
+)]
 '''
       }
       resources: [
@@ -176,10 +369,10 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
 [variables('liveEnclave').location]
 '''
           identity: '''
-[variables('liveEnclave').identity]
+[variables('identityRequest')]
 '''
           tags: '''
-[variables('liveEnclave').tags]
+[coalesce(tryGet(variables('liveEnclave'), 'tags'), createObject())]
 '''
           properties: '''
 [variables('updatedProperties')]

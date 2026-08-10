@@ -187,58 +187,76 @@ var subnetConfigurations = [for subnet in networkConfiguration.subnetConfigurati
   subnetDelegation: subnet.subnetDelegation
 })]
 
+var connectionCreationApproval = approvalSettings.?connectionCreation
+var connectionUpdateApproval = approvalSettings.?connectionUpdate
+var enclaveEndpointUpdateApproval = approvalSettings.?enclaveEndpointUpdate
+var enclaveMaintenanceModeApproval = approvalSettings.?enclaveMaintenanceMode
+
+var normalizedConnectionCreationApproval = connectionCreationApproval == null
+  ? null
+  : (connectionCreationApproval!.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: connectionCreationApproval!.mandatoryApprovers
+          minimumApproversRequired: connectionCreationApproval!.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        })
+var normalizedConnectionUpdateApproval = connectionUpdateApproval == null
+  ? null
+  : (connectionUpdateApproval!.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: connectionUpdateApproval!.mandatoryApprovers
+          minimumApproversRequired: connectionUpdateApproval!.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        })
+var normalizedEnclaveEndpointUpdateApproval = enclaveEndpointUpdateApproval == null
+  ? null
+  : (enclaveEndpointUpdateApproval!.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: enclaveEndpointUpdateApproval!.mandatoryApprovers
+          minimumApproversRequired: enclaveEndpointUpdateApproval!.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        })
+var normalizedEnclaveMaintenanceModeApproval = enclaveMaintenanceModeApproval == null
+  ? null
+  : (enclaveMaintenanceModeApproval!.approvalPolicy == 'Required'
+      ? {
+          approvalPolicy: 'Required'
+          mandatoryApprovers: enclaveMaintenanceModeApproval!.mandatoryApprovers
+          minimumApproversRequired: enclaveMaintenanceModeApproval!.minimumApproversRequired
+        }
+      : {
+          approvalPolicy: 'NotRequired'
+          mandatoryApprovers: []
+          minimumApproversRequired: 0
+        })
+
 var normalizedApprovalSettings = approvalSettings == null ? null : union(
-  approvalSettings.?connectionCreation == null ? {} : {
-    connectionCreation: approvalSettings.connectionCreation.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: approvalSettings.connectionCreation.mandatoryApprovers
-          minimumApproversRequired: approvalSettings.connectionCreation.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        }
+  normalizedConnectionCreationApproval == null ? {} : {
+    connectionCreation: normalizedConnectionCreationApproval
   },
-  approvalSettings.?connectionUpdate == null ? {} : {
-    connectionUpdate: approvalSettings.connectionUpdate.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: approvalSettings.connectionUpdate.mandatoryApprovers
-          minimumApproversRequired: approvalSettings.connectionUpdate.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        }
+  normalizedConnectionUpdateApproval == null ? {} : {
+    connectionUpdate: normalizedConnectionUpdateApproval
   },
-  approvalSettings.?enclaveEndpointUpdate == null ? {} : {
-    enclaveEndpointUpdate: approvalSettings.enclaveEndpointUpdate.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: approvalSettings.enclaveEndpointUpdate.mandatoryApprovers
-          minimumApproversRequired: approvalSettings.enclaveEndpointUpdate.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        }
+  normalizedEnclaveEndpointUpdateApproval == null ? {} : {
+    enclaveEndpointUpdate: normalizedEnclaveEndpointUpdateApproval
   },
-  approvalSettings.?enclaveMaintenanceMode == null ? {} : {
-    enclaveMaintenanceMode: approvalSettings.enclaveMaintenanceMode.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: approvalSettings.enclaveMaintenanceMode.mandatoryApprovers
-          minimumApproversRequired: approvalSettings.enclaveMaintenanceMode.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        }
+  normalizedEnclaveMaintenanceModeApproval == null ? {} : {
+    enclaveMaintenanceMode: normalizedEnclaveMaintenanceModeApproval
   }
 )
 
