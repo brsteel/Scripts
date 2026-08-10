@@ -22,7 +22,7 @@ type postgreSqlBackupType = {
   @minValue(7)
   @maxValue(35)
   retentionDays: int?
-  geoRedundancy: 'Enabled' | 'Disabled'?
+  geoRedundancy: 'Disabled'?
 }
 
 type postgreSqlHighAvailabilityType = {
@@ -41,19 +41,6 @@ type postgreSqlMaintenanceWindowType = {
   @maxValue(59)
   startMinute: int
 }
-
-type absentGeoCmkType = {
-  mode: 'absent'
-}
-
-type configuredGeoCmkType = {
-  mode: 'configured'
-  identityResourceId: string
-  keyUri: string
-}
-
-@discriminator('mode')
-type geoCmkType = absentGeoCmkType | configuredGeoCmkType
 
 @description('PostgreSQL Flexible Server name.')
 @minLength(3)
@@ -111,11 +98,6 @@ param cmkIdentityResourceId string
 @minLength(1)
 param cmkKeyUri string
 
-@description('Optional geo-backup CMK handoff used only when geo-redundant backup is enabled.')
-param geoCmk geoCmkType = {
-  mode: 'absent'
-}
-
 var resolvedSku = {
   name: sku.name
   tier: sku.?tier ?? 'GeneralPurpose'
@@ -145,19 +127,15 @@ var resolvedHighAvailability = union({
   standbyAvailabilityZone: highAvailability.standbyAvailabilityZone
 } : {})
 
-var useGeoCmk = resolvedBackup.geoRedundancy == 'Enabled' && geoCmk.mode == 'configured'
-
 resource flexibleServerResource 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: flexibleServerName
   location: location
   tags: tags
   identity: {
     type: 'UserAssigned'
-    userAssignedIdentities: union({
+    userAssignedIdentities: {
       '${cmkIdentityResourceId}': {}
-    }, useGeoCmk ? {
-      '${geoCmk.identityResourceId}': {}
-    } : {})
+    }
   }
   sku: resolvedSku
   properties: union({
@@ -171,14 +149,11 @@ resource flexibleServerResource 'Microsoft.DBforPostgreSQL/flexibleServers@2024-
       geoRedundantBackup: resolvedBackup.geoRedundancy
     }
     createMode: 'Default'
-    dataEncryption: union({
+    dataEncryption: {
       primaryKeyURI: cmkKeyUri
       primaryUserAssignedIdentityId: cmkIdentityResourceId
       type: 'AzureKeyVault'
-    }, useGeoCmk ? {
-      geoBackupKeyURI: geoCmk.keyUri
-      geoBackupUserAssignedIdentityId: geoCmk.identityResourceId
-    } : {})
+    }
     highAvailability: resolvedHighAvailability
     network: {
       delegatedSubnetResourceId: delegatedSubnetResourceId

@@ -161,7 +161,7 @@ param foundation = {
     resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-workload/providers/Microsoft.KeyVault/vaults/kvexisting' // ← replace
     expectedConfiguration: {
       location: 'usgovvirginia' // ← replace
-      networkBypass: 'None'
+      networkBypass: 'AzureServices'
       networkDefaultAction: 'Deny'
       publicNetworkAccess: 'Disabled'
       purgeProtection: 'Enabled'
@@ -208,31 +208,13 @@ param server = {
   resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-contoso-existing-postgresql-workload/providers/Microsoft.DBforPostgreSQL/flexibleServers/existing-postgresql' // ← replace
   expectedConfiguration: {
     activeDirectoryAuth: 'Enabled'
-    administrators: [
-      {
-        objectId: '22222222-2222-2222-2222-222222222222' // ← replace
-        principalName: 'dba-group@contoso.example'      // ← replace
-        principalType: 'Group'
-        tenantId: '33333333-3333-3333-3333-333333333333' // ← replace
-      }
-    ]
     backup: {
       geoRedundancy: 'Disabled'
       retentionDays: 35
     }
     cmkIdentityResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-workload/providers/Microsoft.ManagedIdentity/userAssignedIdentities/uai-postgresql-cmk' // ← replace
     cmkKeyUri: 'https://kvexisting.vault.azure.net/keys/postgresql-cmk' // ← replace
-    configurations: []
-    databases: [
-      {
-        name: 'appdb'
-      }
-    ]
     delegatedSubnetResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-managed/providers/Microsoft.Network/virtualNetworks/vnet-existing-enclave/subnets/snet-postgresql' // ← replace
-    deletionLock: 'CanNotDelete'
-    diagnostics: {
-      mode: 'Absent'
-    }
     highAvailability: {
       mode: 'Disabled'
     }
@@ -247,6 +229,7 @@ param server = {
       tier: 'GeneralPurpose'
     }
     storage: {
+      autoGrow: 'Enabled'
       storageSizeGB: 128
       type: 'Premium_LRS'
     }

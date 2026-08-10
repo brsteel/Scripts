@@ -1,7 +1,7 @@
 targetScope = 'resourceGroup'
 
 type keyVaultSkuName = 'premium' | 'standard'
-type networkBypass = 'AzureServices' | 'None'
+type networkBypass = 'AzureServices'
 
 @description('Key Vault name.')
 param name string
@@ -36,7 +36,7 @@ param enablePublicNetworkAccess bool = false
 param softDeleteRetentionInDays int = 90
 
 @description('Trusted service bypass mode for the vault firewall.')
-param networkAclsBypass networkBypass = 'None'
+param networkAclsBypass networkBypass = 'AzureServices'
 
 @description('Allowed public IPv4 rules. Defaults to none.')
 param ipRules string[] = []

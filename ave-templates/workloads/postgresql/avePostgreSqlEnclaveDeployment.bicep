@@ -213,7 +213,7 @@ type identityDefinitionType = managedIdentityType | existingIdentityType
 
 type expectedKeyVaultType = {
   location: string
-  networkBypass: 'AzureServices' | 'None'
+  networkBypass: 'AzureServices'
   networkDefaultAction: 'Deny'
   publicNetworkAccess: 'Disabled'
   purgeProtection: 'Enabled'
@@ -362,13 +362,16 @@ var normalizedKeyVaultDnsSuffix = startsWith(keyVaultDnsSuffix, '.') ? substring
 var keyVaultPrivateLinkZoneName = 'privatelink.${replace(normalizedKeyVaultDnsSuffix, 'vault.', 'vaultcore.')}'
 var phaseToken = substring(uniqueString(targetSubscriptionId, enclave.mode == 'managed' ? enclave.name : enclave.resourceId, workload.mode == 'managed' ? workload.name : workload.resourceId), 0, 13)
 
-var workloadResourceGroupName = workload.mode == 'managed'
-  ? workload.resourceGroupName
-  : split(workload.expectedResourceGroupCollection[0], '/')[4]
-var workloadResourceGroupId = '/subscriptions/${targetSubscriptionId}/resourceGroups/${workloadResourceGroupName}'
+var workloadResourceGroupId = workload.mode == 'managed'
+  ? '/subscriptions/${targetSubscriptionId}/resourceGroups/${workload.resourceGroupName}'
+  : workload.expectedResourceGroupCollection[0]
+var workloadResourceGroupSegments = split(workloadResourceGroupId, '/')
+var workloadResourceGroupSubscriptionId = workloadResourceGroupSegments[2]
+var workloadResourceGroupName = workloadResourceGroupSegments[4]
 
 module workloadResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (workload.mode == 'managed') {
   name: 'postgresqlWorkloadResourceGroup'
+  scope: subscription(targetSubscriptionId)
   params: {
     location: location
     name: workloadResourceGroupName
@@ -379,6 +382,7 @@ module workloadResourceGroupModule '../../modules/common/resourceGroup.bicep' = 
 var managedCommunityResourceGroupName = community.mode == 'managed' ? community.resourceGroupName : ''
 module communityResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (community.mode == 'managed') {
   name: 'postgresqlCommunityResourceGroup'
+  scope: subscription(targetSubscriptionId)
   params: {
     location: location
     name: managedCommunityResourceGroupName
@@ -505,6 +509,7 @@ var normalizedExpectedApprovalSettings = enclave.mode == 'managed' ? {} : {
 
 module enclaveResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (enclave.mode == 'managed') {
   name: 'postgresqlEnclaveResourceGroup'
+  scope: subscription(targetSubscriptionId)
   params: {
     location: location
     name: managedEnclaveResourceGroupName
@@ -750,6 +755,7 @@ var cmkIdentityName = foundation.cmkIdentity.mode == 'managed'
 
 module cmkIdentityResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (foundation.cmkIdentity.mode == 'managed' && cmkIdentityResourceGroupName != workloadResourceGroupName) {
   name: 'postgresqlCmkIdentityResourceGroup'
+  scope: subscription(targetSubscriptionId)
   params: {
     location: foundation.cmkIdentity.?location ?? location
     name: cmkIdentityResourceGroupName
@@ -800,6 +806,7 @@ var keyVaultName = foundation.keyVault.mode == 'managed'
 
 module keyVaultResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (foundation.keyVault.mode == 'managed' && keyVaultResourceGroupName != workloadResourceGroupName) {
   name: 'postgresqlKeyVaultResourceGroup'
+  scope: subscription(targetSubscriptionId)
   params: {
     location: location
     name: keyVaultResourceGroupName
@@ -813,7 +820,7 @@ module keyVaultModule '../../modules/common/keyVault.bicep' = if (foundation.key
   params: {
     location: location
     name: keyVaultName
-    networkAclsBypass: 'None'
+    networkAclsBypass: 'AzureServices'
     skuName: foundation.keyVault.?skuName ?? 'premium'
     tags: tags
   }
@@ -860,6 +867,7 @@ module keyModule '../../modules/common/keyVaultKey.bicep' = if (foundation.key.m
   }
   dependsOn: [
     keyVaultModule
+    existingKeyVaultCompatibilityGate
   ]
 }
 
@@ -904,6 +912,7 @@ module keyVaultCmkRoleAssignmentModule '../../modules/common/roleAssignment.bice
     cmkIdentityModule
     keyModule
     existingCmkIdentityCompatibilityGate
+    existingKeyVaultCompatibilityGate
     existingKeyCompatibilityGate
   ]
 }
@@ -920,6 +929,7 @@ var delegatedZoneName = foundation.privateDns.delegatedZone.mode == 'managed'
 
 module delegatedDnsResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (foundation.privateDns.delegatedZone.mode == 'managed' && delegatedZoneResourceGroupName != workloadResourceGroupName) {
   name: 'postgresqlDelegatedDnsResourceGroup'
+  scope: subscription(targetSubscriptionId)
   params: {
     location: location
     name: delegatedZoneResourceGroupName
@@ -966,6 +976,7 @@ var keyVaultZoneName = foundation.privateDns.keyVaultPrivateLinkZone.mode == 'ma
 
 module keyVaultDnsResourceGroupModule '../../modules/common/resourceGroup.bicep' = if (foundation.privateDns.keyVaultPrivateLinkZone.mode == 'managed' && keyVaultZoneResourceGroupName != workloadResourceGroupName) {
   name: 'postgresqlKeyVaultDnsResourceGroup'
+  scope: subscription(targetSubscriptionId)
   params: {
     location: location
     name: keyVaultZoneResourceGroupName
@@ -1003,6 +1014,34 @@ module existingKeyVaultDnsCompatibilityGate './modules/requiredTextSubscriptionG
 var effectiveEnclaveVnetId = enclave.mode == 'managed'
   ? managedEnclaveModule.outputs.enclaveVnetResourceId
   : effectiveEnclaveVnetResourceId
+var effectivePrivateEndpointSubnetResourceId = string(effectivePrivateEndpointSubnet.resourceId)
+var effectiveEnclaveVnetSegments = split(effectiveEnclaveVnetId, '/')
+var effectivePrivateEndpointSubnetSegments = split(effectivePrivateEndpointSubnetResourceId, '/')
+var workloadResourceGroupIdHasValidShape = length(workloadResourceGroupSegments) == 5 && toLower(workloadResourceGroupSegments[1]) == 'subscriptions' && toLower(workloadResourceGroupSegments[3]) == 'resourcegroups'
+var enclaveVnetIdHasValidShape = length(effectiveEnclaveVnetSegments) == 9 && toLower(effectiveEnclaveVnetSegments[1]) == 'subscriptions' && toLower(effectiveEnclaveVnetSegments[3]) == 'resourcegroups' && toLower(effectiveEnclaveVnetSegments[5]) == 'providers' && toLower(effectiveEnclaveVnetSegments[6]) == 'microsoft.network' && toLower(effectiveEnclaveVnetSegments[7]) == 'virtualnetworks'
+var privateEndpointSubnetIdHasValidShape = length(effectivePrivateEndpointSubnetSegments) == 11 && toLower(effectivePrivateEndpointSubnetSegments[1]) == 'subscriptions' && toLower(effectivePrivateEndpointSubnetSegments[3]) == 'resourcegroups' && toLower(effectivePrivateEndpointSubnetSegments[5]) == 'providers' && toLower(effectivePrivateEndpointSubnetSegments[6]) == 'microsoft.network' && toLower(effectivePrivateEndpointSubnetSegments[7]) == 'virtualnetworks' && toLower(effectivePrivateEndpointSubnetSegments[9]) == 'subnets'
+var privateEndpointSubnetBelongsToVnet = toLower(effectivePrivateEndpointSubnetSegments[2]) == toLower(effectiveEnclaveVnetSegments[2]) && toLower(effectivePrivateEndpointSubnetSegments[4]) == toLower(effectiveEnclaveVnetSegments[4]) && toLower(effectivePrivateEndpointSubnetSegments[8]) == toLower(effectiveEnclaveVnetSegments[8])
+var privateEndpointResourceGroupIsInVnetSubscription = toLower(workloadResourceGroupSubscriptionId) == toLower(effectiveEnclaveVnetSegments[2])
+var privateEndpointPlacementIsValid = workloadResourceGroupIdHasValidShape && enclaveVnetIdHasValidShape && privateEndpointSubnetIdHasValidShape && privateEndpointSubnetBelongsToVnet && privateEndpointResourceGroupIsInVnetSubscription
+
+module existingPrivateEndpointResourceGroupReader './modules/existingResourceGroupStateReader.bicep' = if (workload.mode == 'existing') {
+  name: 'existingPrivateEndpointResourceGroup'
+  scope: subscription(workloadResourceGroupSubscriptionId)
+  params: {
+    resourceGroupName: workloadResourceGroupName
+  }
+}
+
+module privateEndpointPlacementGate './modules/requiredTextSubscriptionGate.bicep' = {
+  name: 'privateEndpointPlacementGate'
+  params: {
+    requiredText: privateEndpointPlacementIsValid && (workload.mode == 'managed' || (toLower(existingPrivateEndpointResourceGroupReader.outputs.resourceId) == toLower(workloadResourceGroupId) && !empty(existingPrivateEndpointResourceGroupReader.outputs.location))) ? 'compatible' : ''
+  }
+  dependsOn: [
+    existingPrivateEndpointResourceGroupReader
+    workloadResourceGroupModule
+  ]
+}
 
 module delegatedDnsLinkModule '../../modules/common/privateDnsZoneVirtualNetworkLink.bicep' = {
   name: 'postgresqlDelegatedDnsLink'
@@ -1040,7 +1079,7 @@ module keyVaultDnsLinkModule '../../modules/common/privateDnsZoneVirtualNetworkL
 
 module keyVaultPrivateEndpointModule '../../modules/common/privateEndpoint.bicep' = {
   name: 'postgresqlKeyVaultPrivateEndpoint'
-  scope: resourceGroup(keyVaultSubscriptionId, keyVaultResourceGroupName)
+  scope: resourceGroup(workloadResourceGroupSubscriptionId, workloadResourceGroupName)
   params: {
     location: effectiveEnclaveLocation
     name: '${keyVaultName}-pe'
@@ -1060,13 +1099,15 @@ module keyVaultPrivateEndpointModule '../../modules/common/privateEndpoint.bicep
       name: '${keyVaultName}-vault'
       privateLinkServiceResourceId: keyVaultResourceId
     }
-    subnetResourceId: enclave.mode == 'managed' ? resourceId(targetSubscriptionId, effectiveEnclaveManagedResourceGroupName, 'Microsoft.Network/virtualNetworks/subnets', effectiveEnclaveVnetName, privateEndpointSubnetName) : effectivePrivateEndpointSubnet.resourceId
+    subnetResourceId: effectivePrivateEndpointSubnetResourceId
     tags: tags
   }
   dependsOn: [
     keyVaultModule
     existingKeyVaultCompatibilityGate
     keyVaultDnsLinkModule
+    privateEndpointPlacementGate
+    workloadResourceGroupModule
   ]
 }
 

@@ -251,7 +251,7 @@ type identityDefinitionType = managedIdentityType | existingIdentityType
 
 type expectedKeyVaultType = {
   location: string
-  networkBypass: 'AzureServices' | 'None'
+  networkBypass: 'AzureServices'
   networkDefaultAction: 'Deny'
   publicNetworkAccess: 'Disabled'
   purgeProtection: 'Enabled'
@@ -415,11 +415,36 @@ type postgreSqlStorageType = {
   autoGrow: 'Enabled' | 'Disabled'?
 }
 
+type expectedPostgreSqlSkuType = {
+  @minLength(1)
+  name: string
+  tier: 'Burstable' | 'GeneralPurpose' | 'MemoryOptimized'
+}
+
+type expectedPostgreSqlStorageType = {
+  @minValue(32)
+  storageSizeGB: int
+  type: 'Premium_LRS' | 'PremiumV2_LRS'
+  tier: string?
+  @minValue(1)
+  iops: int?
+  @minValue(1)
+  throughput: int?
+  autoGrow: 'Enabled' | 'Disabled'
+}
+
+type expectedPostgreSqlBackupType = {
+  @minValue(7)
+  @maxValue(35)
+  retentionDays: int
+  geoRedundancy: 'Disabled'
+}
+
 type postgreSqlBackupType = {
   @minValue(7)
   @maxValue(35)
   retentionDays: int?
-  geoRedundancy: 'Enabled' | 'Disabled'?
+  geoRedundancy: 'Disabled'?
 }
 
 type postgreSqlHighAvailabilityType = {
@@ -529,9 +554,9 @@ type expectedFlexibleServerType = {
   location: string
   version: string
   availabilityZone: string?
-  sku: postgreSqlSkuType
-  storage: postgreSqlStorageType
-  backup: postgreSqlBackupType
+  sku: expectedPostgreSqlSkuType
+  storage: expectedPostgreSqlStorageType
+  backup: expectedPostgreSqlBackupType
   highAvailability: postgreSqlHighAvailabilityType
   maintenanceWindow: maintenanceExpectationType
   delegatedSubnetResourceId: string
@@ -541,14 +566,6 @@ type expectedFlexibleServerType = {
   tenantId: string
   cmkIdentityResourceId: string
   cmkKeyUri: string
-  geoCmkIdentityResourceId: string?
-  geoCmkKeyUri: string?
-  @minLength(1)
-  administrators: postgreSqlAdministratorType[]
-  databases: postgreSqlDatabaseType[]
-  configurations: postgreSqlConfigurationType[]
-  diagnostics: diagnosticsExpectationType
-  deletionLock: 'CanNotDelete' | 'Absent'
 }
 
 type existingFlexibleServerType = {

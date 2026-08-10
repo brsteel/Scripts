@@ -65,6 +65,24 @@ az deployment sub create \
   --parameters ave-templates/workloads/postgresql/examples/<scenario>.bicepparam
 ```
 
+### What-if
+
+For a scenario parameter file, use:
+
+```sh
+az deployment sub what-if \
+  --location <region> \
+  --parameters ave-templates/workloads/postgresql/examples/<scenario>.bicepparam
+```
+
+Use `--parameters` only; the `.bicepparam` file already identifies the
+production template through `using`. What-if remains useful for static ARM
+shape, scopes, type errors, and obvious create/delete drift. It cannot resolve
+Mission runtime `reference()` outputs, so downstream resources may be
+Ignore/unknown or noisy Modify. It cannot prove existing/additive live
+compatibility, a full PUT, or approvals. What-if success is never authorization
+for an additive update. No deployment or what-if was run for these changes.
+
 ### Scenario parameter files
 
 | Scenario | File |

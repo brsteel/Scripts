@@ -112,6 +112,45 @@ var communitySubscriptionId = communitySegments[2]
 var communityResourceGroupName = communitySegments[4]
 var communityName = communitySegments[8]
 
+var finalizationExistingEndpointIds = networkFinalization.mode == 'ExistingReferenceOnly'
+  ? networkFinalization.communityEndpointResourceIds
+  : (networkFinalization.mode == 'ExistingApprovedEndpointChanges' ? networkFinalization.existingCommunityEndpointResourceIds : [])
+var existingConnectionIdsToValidate = networkFinalization.mode == 'ExistingReferenceOnly'
+  ? networkFinalization.enclaveConnectionResourceIds
+  : (networkFinalization.mode == 'ExistingApprovedEndpointChanges' ? networkFinalization.existingEnclaveConnectionResourceIds : [])
+
+module existingFinalizationEndpointReaders './modules/existingCommunityEndpointStateReader.bicep' = [for (endpointId, index) in finalizationExistingEndpointIds: {
+  name: 'existingFinalizationEndpoint${index}'
+  scope: resourceGroup(communitySubscriptionId, communityResourceGroupName)
+  params: {
+    communityName: communityName
+    expectedLocation: phaseA.location
+    expectedResourceId: endpointId
+  }
+}]
+
+module existingConnectivityEndpointReaders './modules/existingCommunityEndpointStateReader.bicep' = [for (connectivity, index) in communityConnectivity: {
+  name: 'existingConnectivityEndpoint${index}'
+  scope: resourceGroup(communitySubscriptionId, communityResourceGroupName)
+  params: {
+    communityName: communityName
+    expectedLocation: phaseA.location
+    expectedResourceId: connectivity.endpoint.mode == 'existing' ? connectivity.endpoint.resourceId : ''
+  }
+}]
+
+module existingEnclaveConnectionReaders './modules/existingEnclaveConnectionStateReader.bicep' = [for (connectionId, index) in existingConnectionIdsToValidate: {
+  name: 'existingEnclaveConnection${index}'
+  scope: resourceGroup(enclaveSubscriptionId, enclaveResourceGroupName)
+  params: {
+    allowedDestinationEndpointResourceIds: finalizationExistingEndpointIds
+    expectedCommunityResourceId: phaseA.communityResourceId
+    expectedEnclaveResourceId: phaseA.enclaveResourceId
+    expectedLocation: phaseA.location
+    expectedResourceId: connectionId
+  }
+}]
+
 var effectiveEndpointNames = [for (connectivity, index) in communityConnectivity: connectivity.endpoint.mode == 'managed'
   ? (connectivity.endpoint.?name ?? 'ce-pg-${substring(uniqueString(phaseA.communityResourceId, string(connectivity.endpoint.ruleCollection), string(index)), 0, 8)}')
   : last(split(connectivity.endpoint.resourceId, '/'))
@@ -155,19 +194,20 @@ module enclaveConnectionModules '../../modules/common/missionEnclaveConnection.b
   }
   dependsOn: [
     communityEndpointModules
+    existingConnectivityEndpointReaders
   ]
 }]
 
 var createdConnectionIds = [for connectionName in connectionNames: resourceId(enclaveSubscriptionId, enclaveResourceGroupName, 'Microsoft.Mission/enclaveConnections', connectionName)]
 var finalCommunityEndpointIds = networkFinalization.mode == 'ExistingReferenceOnly'
-  ? networkFinalization.communityEndpointResourceIds
+  ? finalizationExistingEndpointIds
   : (networkFinalization.mode == 'ExistingApprovedEndpointChanges'
-      ? concat(networkFinalization.existingCommunityEndpointResourceIds, effectiveEndpointIds)
+      ? concat(finalizationExistingEndpointIds, effectiveEndpointIds)
       : effectiveEndpointIds)
 var finalEnclaveConnectionIds = networkFinalization.mode == 'ExistingReferenceOnly'
-  ? networkFinalization.enclaveConnectionResourceIds
+  ? existingConnectionIdsToValidate
   : (networkFinalization.mode == 'ExistingApprovedEndpointChanges'
-      ? concat(networkFinalization.existingEnclaveConnectionResourceIds, createdConnectionIds)
+      ? concat(existingConnectionIdsToValidate, createdConnectionIds)
       : createdConnectionIds)
 
 output contractVersion string = '3.0'

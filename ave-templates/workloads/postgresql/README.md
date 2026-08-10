@@ -136,7 +136,7 @@ These grants are separate. Reusing the same Entra group is allowed, but each use
    - They are not the same as Azure RBAC or Mission role assignments.
 
 6. **PostgreSQL administrators**
-   - Declared in `server.administrators` for managed servers, or `server.expectedConfiguration.administrators` for existing-server validation.
+   - Declared in `server.administrators` for managed servers.
    - Each entry requires:
      - `objectId`
      - `principalName` (UPN, display name, or group name as appropriate)
@@ -604,6 +604,12 @@ networkFinalization: {
 }
 ```
 
+Every supplied existing endpoint and connection ID is read before Phase B emits
+outputs. The gate requires the exact Mission resource type and ID, existence,
+the Phase A community/enclave relationship, matching location, and a connection
+destination among the validated endpoint IDs. Existing endpoints used by
+`communityConnectivity` are validated before a managed connection is created.
+
 ### `communityConnectivity`
 
 Each item defines:
@@ -724,20 +730,29 @@ That expected object is validated against:
 
 - location
 - version
-- sku
-- storage
-- backup
-- high availability
+- availability zone
+- full SKU name and tier
+- storage size, type, tier, IOPS, throughput, and autogrow (including absence
+  for optional service properties)
+- backup retention with geo redundancy fixed to `Disabled`
+- high availability mode and standby zone
 - maintenance mode/window
 - delegated subnet resource ID
 - private DNS zone resource ID
 - Entra auth settings
-- CMK identity and key URI
-- administrators
-- databases
-- configurations
-- diagnostics expectation
-- delete lock expectation
+- primary CMK identity, key URI, encryption mode, and the exact single
+  user-assigned identity set
+- absence of geo-backup CMK state
+- equality to the Phase A subnet, DNS, identity, and key handoff
+
+The existing-server contract intentionally excludes administrators, databases,
+server configurations, diagnostic settings, and deletion locks. Those are
+separate child or extension resources that ARM template expressions cannot
+enumerate reliably enough to prove an exact set (including absence). The
+template does not silently accept customer assertions for unreadable state;
+those fields are not advertised for existing servers. Validate those resources
+through a separate approved inventory process. Managed-server mode continues
+to own and configure them.
 
 See [postgresql-existing-compatible.bicepparam](./examples/postgresql-existing-compatible.bicepparam).
 
@@ -793,7 +808,7 @@ Only values implemented in code are listed here.
 | enabledForDeployment | `false` |
 | enablePublicNetworkAccess | `false` |
 | softDeleteRetentionInDays | `90` |
-| networkAclsBypass | `None` |
+| networkAclsBypass | `AzureServices` |
 | ipRules | `[]` |
 | virtualNetworkSubnetResourceIds | `[]` |
 | purge protection | enabled |
@@ -892,10 +907,44 @@ Residual preview risk:
 ### Existing workload registration
 
 - compares `resourceGroupCollection` exactly to `expectedResourceGroupCollection`
+- the Key Vault private endpoint is placed in the customer workload resource
+  group, never in the Key Vault or Mission-managed resource group
+- the workload resource group must exist in the enclave VNet/subnet
+  subscription; cross-subscription existing-enclave requests fail closed unless
+  an existing workload registration names such a customer-managed resource
+  group
 
 ### Existing PostgreSQL server
 
 - validates the expected configuration listed in the Phase C section above
+
+### Geo-redundant backup
+
+Geo-redundant backup is not supported by this profile because Phase A emits no
+geo CMK. All managed and existing backup contracts accept only
+`geoRedundancy: 'Disabled'`; `Enabled` is rejected at Bicep compile time.
+
+## What-if limitations
+
+Use what-if for static ARM shape, scopes, planned Azure resource declarations,
+parameter/type errors, and obvious create/delete drift:
+
+```sh
+az deployment sub what-if \
+  --location <region> \
+  --parameters ave-templates/workloads/postgresql/examples/<scenario>.bicepparam
+```
+
+Because the `.bicepparam` file contains `using`, pass it with `--parameters`
+only; do not also pass `--template-file`.
+
+ARM what-if cannot resolve Mission runtime `reference()` outputs used between
+the phases. Managed downstream resources can therefore appear as `Ignore`,
+unknown, or noisy `Modify`. What-if cannot prove live compatibility for
+existing/additive resources, cannot prove the safety of the additive full PUT,
+and cannot predict Mission approvals. A successful what-if is never
+authorization for an additive update; obtain the required review and approval
+before deployment. No deployment or what-if was run as part of this change.
 
 ## Idempotent supporting resources
 
@@ -917,4 +966,4 @@ These resources are intentionally deterministic and do not use separate managed/
 
 - All module references are local relative paths.
 - No remote module registry, Template Spec, or AVM dependency is used.
-- No Azure deployment, `what-if`, login, or resource mutation is performed by this documentation work.
+- Static validation requires no Azure deployment or resource mutation.

@@ -47,11 +47,36 @@ type postgreSqlStorageType = {
   autoGrow: 'Enabled' | 'Disabled'?
 }
 
+type expectedPostgreSqlSkuType = {
+  @minLength(1)
+  name: string
+  tier: 'Burstable' | 'GeneralPurpose' | 'MemoryOptimized'
+}
+
+type expectedPostgreSqlStorageType = {
+  @minValue(32)
+  storageSizeGB: int
+  type: 'Premium_LRS' | 'PremiumV2_LRS'
+  tier: string?
+  @minValue(1)
+  iops: int?
+  @minValue(1)
+  throughput: int?
+  autoGrow: 'Enabled' | 'Disabled'
+}
+
+type expectedPostgreSqlBackupType = {
+  @minValue(7)
+  @maxValue(35)
+  retentionDays: int
+  geoRedundancy: 'Disabled'
+}
+
 type postgreSqlBackupType = {
   @minValue(7)
   @maxValue(35)
   retentionDays: int?
-  geoRedundancy: 'Enabled' | 'Disabled'?
+  geoRedundancy: 'Disabled'?
 }
 
 type postgreSqlHighAvailabilityType = {
@@ -161,9 +186,9 @@ type expectedFlexibleServerType = {
   location: string
   version: string
   availabilityZone: string?
-  sku: postgreSqlSkuType
-  storage: postgreSqlStorageType
-  backup: postgreSqlBackupType
+  sku: expectedPostgreSqlSkuType
+  storage: expectedPostgreSqlStorageType
+  backup: expectedPostgreSqlBackupType
   highAvailability: postgreSqlHighAvailabilityType
   maintenanceWindow: maintenanceExpectationType
   delegatedSubnetResourceId: string
@@ -173,14 +198,6 @@ type expectedFlexibleServerType = {
   tenantId: string
   cmkIdentityResourceId: string
   cmkKeyUri: string
-  geoCmkIdentityResourceId: string?
-  geoCmkKeyUri: string?
-  @minLength(1)
-  administrators: postgreSqlAdministratorType[]
-  databases: postgreSqlDatabaseType[]
-  configurations: postgreSqlConfigurationType[]
-  diagnostics: diagnosticsExpectationType
-  deletionLock: 'CanNotDelete' | 'Absent'
 }
 
 type existingFlexibleServerType = {
@@ -209,7 +226,9 @@ var cloudDomain = replace(replace(environment().resourceManager, 'https://manage
 var derivedPostgreSqlDnsSuffix = 'postgres.database.${cloudDomain}'
 var derivedPostgreSqlPrivateLinkZoneName = 'privatelink.${derivedPostgreSqlDnsSuffix}'
 var foundationCloudIsValid = toLower(foundation.phaseA.postgreSqlDnsSuffix) == toLower(derivedPostgreSqlDnsSuffix) && toLower(foundation.phaseA.postgreSqlPrivateLinkZoneName) == toLower(derivedPostgreSqlPrivateLinkZoneName)
-var existingServerScopeIsValid = server.mode == 'managed' || toLower(server.resourceId) == toLower('${foundation.phaseA.workloadResourceGroupId}/providers/Microsoft.DBforPostgreSQL/flexibleServers/${last(split(server.resourceId, '/'))}')
+var existingServerSegments = split(server.mode == 'existing' ? server.resourceId : '////////', '/')
+var existingServerIdHasValidShape = server.mode == 'managed' || (length(existingServerSegments) == 9 && toLower(existingServerSegments[1]) == 'subscriptions' && toLower(existingServerSegments[3]) == 'resourcegroups' && toLower(existingServerSegments[5]) == 'providers' && toLower(existingServerSegments[6]) == 'microsoft.dbforpostgresql' && toLower(existingServerSegments[7]) == 'flexibleservers')
+var existingServerScopeIsValid = server.mode == 'managed' || (existingServerIdHasValidShape && toLower(server.resourceId) == toLower('${foundation.phaseA.workloadResourceGroupId}/providers/Microsoft.DBforPostgreSQL/flexibleServers/${existingServerSegments[8]}'))
 
 module workloadDeployment './modules/flexibleServerInResourceGroup.bicep' = if (foundationCloudIsValid && existingServerScopeIsValid) {
   name: 'postgresqlWorkload'
