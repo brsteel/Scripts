@@ -1035,7 +1035,7 @@ module existingPrivateEndpointResourceGroupReader './modules/existingResourceGro
 module privateEndpointPlacementGate './modules/requiredTextSubscriptionGate.bicep' = {
   name: 'privateEndpointPlacementGate'
   params: {
-    requiredText: privateEndpointPlacementIsValid && (workload.mode == 'managed' || (toLower(existingPrivateEndpointResourceGroupReader.outputs.resourceId) == toLower(workloadResourceGroupId) && !empty(existingPrivateEndpointResourceGroupReader.outputs.location))) ? 'compatible' : ''
+    requiredText: privateEndpointPlacementIsValid && (workload.mode == 'managed' ? true : (toLower(existingPrivateEndpointResourceGroupReader.outputs.resourceId) == toLower(workloadResourceGroupId) && !empty(existingPrivateEndpointResourceGroupReader.outputs.location))) ? 'compatible' : ''
   }
   dependsOn: [
     existingPrivateEndpointResourceGroupReader
