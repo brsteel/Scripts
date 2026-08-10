@@ -15,7 +15,7 @@ Use a thin orchestration `.bicep` to chain these modules together and pass seria
 - Creates or references the CMK identity, Key Vault, CMK key, and private DNS zones required by PostgreSQL Flexible Server.
 - Creates a Key Vault private endpoint and private DNS VNet links with deterministic names.
 - Creates or references PostgreSQL Flexible Server using Microsoft Entra-only authentication.
-- For newly managed enclaves, applies the caller's approval settings during the initial enclave deployment, defaulting all four actions to `NotRequired` when `approvalSettings` is omitted.
+- For newly managed enclaves, applies the caller's explicitly declared approval settings during the initial enclave deployment. Callers must submit all four actions on every managed deployment, with the recommended secure-new starting point being all four set to `NotRequired`.
 - Never deploys passwords or local database administrator credentials.
 - Never writes NSGs, route tables, routes, service endpoints, firewalls, or direct Mission-managed VNet/subnet resources.
 
@@ -62,7 +62,7 @@ These grants are separate. Reusing the same Entra group is allowed, but each use
      - one or more `mandatoryApprovers[].approverEntraId`
      - `minimumApproversRequired >= 1`
    - `NotRequired` needs no approver IDs and the module normalizes it to an empty list with minimum `0`.
-   - For newly managed enclaves, these declarations are applied on the initial enclave PUT. If you omit `enclave.approvalSettings`, the template sends all four actions as `NotRequired`.
+   - For newly managed enclaves, these declarations are applied on the initial enclave PUT and every rerun reapplies the declared desired state. Keep any live `Required` policies in parameters; omission is not allowed and does not preserve live state.
    - If a managed enclave sets `Required` for connection or endpoint actions, later Phase B connectivity work can wait on external approval. The template cannot self-approve.
    - For existing enclaves, the template never disables or weakens live approvals. If the existing enclave already requires approval for endpoint, connection, or additive-subnet operations, deployment completion depends on external approver action within an ARM/RP timing window that is not publicly guaranteed. The template cannot self-approve, and deployment RBAC is not approval authority.
    - Separate actions exist for:
@@ -197,6 +197,20 @@ enclave: {
   name: 'contoso-enclave'
   resourceGroupName: 'rg-contoso-enclave'
   addressSpaceCidr: '10.250.0.0/16'
+  approvalSettings: {
+    connectionCreation: {
+      approvalPolicy: 'NotRequired'
+    }
+    connectionUpdate: {
+      approvalPolicy: 'NotRequired'
+    }
+    enclaveEndpointUpdate: {
+      approvalPolicy: 'NotRequired'
+    }
+    enclaveMaintenanceMode: {
+      approvalPolicy: 'NotRequired'
+    }
+  }
   postgreSqlSubnet: {
     networkPrefixSize: 24
     name: 'snet-postgresql' // optional
@@ -214,9 +228,9 @@ enclave: {
 }
 ```
 
-Managed approvals are optional. Omitting `approvalSettings` makes all four actions `NotRequired`.
+Managed approvals are required. The recommended secure-new starting point is to submit all four actions explicitly as `NotRequired`.
 
-To require approvals at initial deployment time, supply all four actions explicitly:
+To require approvals at initial deployment time, replace the relevant action blocks with `Required` policies:
 
 ```bicep
 enclave: {
@@ -710,7 +724,7 @@ Only values implemented in code are listed here.
 | enclave managed | enclaveRoleAssignments | `[]` |
 | enclave managed | workloadRoleAssignments | `[]` |
 | enclave managed | additionalMaintenancePrincipals | `[]` |
-| enclave managed | approvalSettings | omitted -> all four actions default to `NotRequired` |
+| enclave managed | approvalSettings | **no default; required**. Recommended initial value is all four actions explicitly set to `NotRequired`. |
 | workload managed | name | **no default** |
 | workload managed | resourceGroupName | **no default** |
 | foundation.cmkIdentity managed | resourceGroupName | workload resource group |
@@ -790,6 +804,7 @@ Only values implemented in code are listed here.
 - managed `enclave.name`
 - managed `enclave.resourceGroupName`
 - managed `enclave.addressSpaceCidr`
+- managed `enclave.approvalSettings` (all four actions must be declared every run)
 - managed `enclave.postgreSqlSubnet.networkPrefixSize`
 - managed `enclave.privateEndpointSubnet.networkPrefixSize`
 - managed or existing `workload` mode-specific required IDs/names

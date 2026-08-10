@@ -23,31 +23,17 @@ param privateEndpointSubnetNetworkPrefixSize int = 0
 @minLength(1)
 param effectivePrivateEndpointSubnetName string
 
-resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
-  name: 'missionEnclaveAdditiveSubnetUpdate'
+#disable-next-line no-deployments-resources
+resource inventoryDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
+  name: 'missionEnclaveAdditiveSubnetInventory'
   properties: {
     mode: 'Incremental'
     expressionEvaluationOptions: {
       scope: 'inner'
     }
     parameters: {
-      effectivePrivateEndpointSubnetName: {
-        value: effectivePrivateEndpointSubnetName
-      }
       enclaveName: {
         value: enclaveName
-      }
-      postgreSqlSubnetName: {
-        value: postgreSqlSubnetName
-      }
-      postgreSqlSubnetNetworkPrefixSize: {
-        value: postgreSqlSubnetNetworkPrefixSize
-      }
-      privateEndpointSubnetName: {
-        value: privateEndpointSubnetName
-      }
-      privateEndpointSubnetNetworkPrefixSize: {
-        value: privateEndpointSubnetNetworkPrefixSize
       }
     }
     template: {
@@ -55,23 +41,8 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
       languageVersion: '2.0'
       contentVersion: '1.0.0.0'
       parameters: {
-        effectivePrivateEndpointSubnetName: {
-          type: 'string'
-        }
         enclaveName: {
           type: 'string'
-        }
-        postgreSqlSubnetName: {
-          type: 'string'
-        }
-        postgreSqlSubnetNetworkPrefixSize: {
-          type: 'int'
-        }
-        privateEndpointSubnetName: {
-          type: 'string'
-        }
-        privateEndpointSubnetNetworkPrefixSize: {
-          type: 'int'
         }
       }
       variables: {
@@ -89,6 +60,9 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
 '''
         liveUserAssignedIdentities: '''
 [coalesce(tryGet(variables('liveIdentity'), 'userAssignedIdentities'), createObject())]
+'''
+        liveTags: '''
+[coalesce(tryGet(variables('liveEnclave'), 'tags'), createObject())]
 '''
         identityRequest: '''
 [union(
@@ -116,7 +90,7 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
         liveSubnetConfigurations: '''
 [coalesce(tryGet(variables('liveEnclaveVirtualNetwork'), 'subnetConfigurations'), createArray())]
 '''
-        existingSubnetConfigurations: '''
+        normalizedExistingSubnetConfigurations: '''
 [map(
   variables('liveSubnetConfigurations'),
   lambda(
@@ -134,30 +108,6 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
     )
   )
 )]
-'''
-        newSubnetConfigurations: '''
-[concat(
-  createArray(
-    createObject(
-      'networkPrefixSize', parameters('postgreSqlSubnetNetworkPrefixSize'),
-      'subnetDelegation', 'Microsoft.DBforPostgreSQL/flexibleServers',
-      'subnetName', parameters('postgreSqlSubnetName')
-    )
-  ),
-  if(
-    empty(parameters('privateEndpointSubnetName')),
-    createArray(),
-    createArray(
-      createObject(
-        'networkPrefixSize', parameters('privateEndpointSubnetNetworkPrefixSize'),
-        'subnetName', parameters('privateEndpointSubnetName')
-      )
-    )
-  )
-)]
-'''
-        mergedSubnetConfigurations: '''
-[concat(variables('existingSubnetConfigurations'), variables('newSubnetConfigurations'))]
 '''
         liveApprovalSettings: '''
 [coalesce(tryGet(variables('liveProperties'), 'approvalSettings'), createObject())]
@@ -266,10 +216,10 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
         liveNetworkName: '''
 [coalesce(tryGet(variables('liveEnclaveVirtualNetwork'), 'networkName'), '')]
 '''
-        enclaveVirtualNetwork: '''
+        writableEnclaveVirtualNetwork: '''
 [union(
   createObject(
-    'subnetConfigurations', variables('mergedSubnetConfigurations')
+    'subnetConfigurations', variables('normalizedExistingSubnetConfigurations')
   ),
   if(
     contains(variables('liveEnclaveVirtualNetwork'), 'allowSubnetCommunication'),
@@ -295,11 +245,11 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
   )
 )]
 '''
-        updatedProperties: '''
+        writableProperties: '''
 [union(
   createObject(
     'communityResourceId', variables('liveProperties').communityResourceId,
-    'enclaveVirtualNetwork', variables('enclaveVirtualNetwork'),
+    'enclaveVirtualNetwork', variables('writableEnclaveVirtualNetwork'),
     'approvalSettings', variables('normalizedApprovalSettings')
   ),
   if(
@@ -358,6 +308,163 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
 )]
 '''
       }
+      resources: []
+      outputs: {
+        identityRequest: {
+          type: 'object'
+          value: '''
+[variables('identityRequest')]
+'''
+        }
+        location: {
+          type: 'string'
+          value: '''
+[variables('liveEnclave').location]
+'''
+        }
+        normalizedExistingSubnetConfigurations: {
+          type: 'array'
+          value: '''
+[variables('normalizedExistingSubnetConfigurations')]
+'''
+        }
+        tags: {
+          type: 'object'
+          value: '''
+[variables('liveTags')]
+'''
+        }
+        writableProperties: {
+          type: 'object'
+          value: '''
+[variables('writableProperties')]
+'''
+        }
+      }
+    }
+  }
+}
+
+#disable-next-line no-deployments-resources
+resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
+  name: 'missionEnclaveAdditiveSubnetUpdate'
+  properties: {
+    mode: 'Incremental'
+    expressionEvaluationOptions: {
+      scope: 'inner'
+    }
+    parameters: {
+      effectivePrivateEndpointSubnetName: {
+        value: effectivePrivateEndpointSubnetName
+      }
+      enclaveName: {
+        value: enclaveName
+      }
+      existingSubnetConfigurations: {
+        value: inventoryDeployment.properties.outputs.normalizedExistingSubnetConfigurations.value
+      }
+      identityRequest: {
+        value: inventoryDeployment.properties.outputs.identityRequest.value
+      }
+      location: {
+        value: inventoryDeployment.properties.outputs.location.value
+      }
+      postgreSqlSubnetName: {
+        value: postgreSqlSubnetName
+      }
+      postgreSqlSubnetNetworkPrefixSize: {
+        value: postgreSqlSubnetNetworkPrefixSize
+      }
+      privateEndpointSubnetName: {
+        value: privateEndpointSubnetName
+      }
+      privateEndpointSubnetNetworkPrefixSize: {
+        value: privateEndpointSubnetNetworkPrefixSize
+      }
+      tags: {
+        value: inventoryDeployment.properties.outputs.tags.value
+      }
+      writableProperties: {
+        value: inventoryDeployment.properties.outputs.writableProperties.value
+      }
+    }
+    template: {
+      '$schema': 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#'
+      languageVersion: '2.0'
+      contentVersion: '1.0.0.0'
+      parameters: {
+        effectivePrivateEndpointSubnetName: {
+          type: 'string'
+        }
+        enclaveName: {
+          type: 'string'
+        }
+        existingSubnetConfigurations: {
+          type: 'array'
+        }
+        identityRequest: {
+          type: 'object'
+        }
+        location: {
+          type: 'string'
+        }
+        postgreSqlSubnetName: {
+          type: 'string'
+        }
+        postgreSqlSubnetNetworkPrefixSize: {
+          type: 'int'
+        }
+        privateEndpointSubnetName: {
+          type: 'string'
+        }
+        privateEndpointSubnetNetworkPrefixSize: {
+          type: 'int'
+        }
+        tags: {
+          type: 'object'
+        }
+        writableProperties: {
+          type: 'object'
+        }
+      }
+      variables: {
+        newSubnetConfigurations: '''
+[concat(
+  createArray(
+    createObject(
+      'networkPrefixSize', parameters('postgreSqlSubnetNetworkPrefixSize'),
+      'subnetDelegation', 'Microsoft.DBforPostgreSQL/flexibleServers',
+      'subnetName', parameters('postgreSqlSubnetName')
+    )
+  ),
+  if(
+    empty(parameters('privateEndpointSubnetName')),
+    createArray(),
+    createArray(
+      createObject(
+        'networkPrefixSize', parameters('privateEndpointSubnetNetworkPrefixSize'),
+        'subnetName', parameters('privateEndpointSubnetName')
+      )
+    )
+  )
+)]
+'''
+        mergedSubnetConfigurations: '''
+[concat(parameters('existingSubnetConfigurations'), variables('newSubnetConfigurations'))]
+'''
+        updatedEnclaveVirtualNetwork: '''
+[union(
+  coalesce(tryGet(parameters('writableProperties'), 'enclaveVirtualNetwork'), createObject()),
+  createObject('subnetConfigurations', variables('mergedSubnetConfigurations'))
+)]
+'''
+        updatedProperties: '''
+[union(
+  parameters('writableProperties'),
+  createObject('enclaveVirtualNetwork', variables('updatedEnclaveVirtualNetwork'))
+)]
+'''
+      }
       resources: [
         {
           type: 'Microsoft.Mission/virtualEnclaves'
@@ -366,13 +473,13 @@ resource additiveDeployment 'Microsoft.Resources/deployments@2022-09-01' = {
 [parameters('enclaveName')]
 '''
           location: '''
-[variables('liveEnclave').location]
+[parameters('location')]
 '''
           identity: '''
-[variables('identityRequest')]
+[parameters('identityRequest')]
 '''
           tags: '''
-[coalesce(tryGet(variables('liveEnclave'), 'tags'), createObject())]
+[parameters('tags')]
 '''
           properties: '''
 [variables('updatedProperties')]

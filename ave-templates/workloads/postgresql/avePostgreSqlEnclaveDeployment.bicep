@@ -131,7 +131,7 @@ type managedEnclaveType = {
   name: string
   resourceGroupName: string
   addressSpaceCidr: string
-  approvalSettings: approvalSettingsType?
+  approvalSettings: approvalSettingsType
   postgreSqlSubnet: subnetRequestType
   privateEndpointSubnet: subnetRequestType
   allowSubnetCommunication: bool?
@@ -335,7 +335,7 @@ param deploymentPrincipal deploymentPrincipalType
 @description('Managed-or-existing Mission community.')
 param community communityDefinitionType
 
-@description('Managed or existing Mission enclave. Existing enclaves must explicitly choose ReferenceOnly or AdditiveSubnetUpdate behavior.')
+@description('Managed or existing Mission enclave. Managed callers must explicitly declare all approval settings. Existing enclaves must explicitly choose ReferenceOnly or AdditiveSubnetUpdate behavior.')
 param enclave enclaveDefinitionType
 
 @description('Managed-or-existing Mission workload registration.')
@@ -455,23 +455,7 @@ var privateEndpointSubnetName = enclave.mode == 'managed'
     : (enclave.privateEndpointSubnet.mode == 'Existing'
         ? enclave.privateEndpointSubnet.expectedConfiguration.name
         : enclave.privateEndpointSubnet.name)
-var defaultManagedApprovalSettings = {
-  connectionCreation: {
-    approvalPolicy: 'NotRequired'
-  }
-  connectionUpdate: {
-    approvalPolicy: 'NotRequired'
-  }
-  enclaveEndpointUpdate: {
-    approvalPolicy: 'NotRequired'
-  }
-  enclaveMaintenanceMode: {
-    approvalPolicy: 'NotRequired'
-  }
-}
-var normalizedManagedApprovalSettings = enclave.mode == 'managed'
-  ? enclave.?approvalSettings ?? defaultManagedApprovalSettings
-  : defaultManagedApprovalSettings
+var managedApprovalSettings = enclave.mode == 'managed' ? enclave.approvalSettings : null
 var normalizedExpectedApprovalSettings = enclave.mode == 'managed' ? {} : {
   connectionCreation: enclave.expectedConfiguration.approvalSettings.connectionCreation.approvalPolicy == 'Required'
     ? {
@@ -532,7 +516,7 @@ module managedEnclaveModule '../../modules/common/missionVirtualEnclave.bicep' =
   name: 'postgresqlManagedEnclave'
   scope: resourceGroup(targetSubscriptionId, managedEnclaveResourceGroupName)
   params: {
-    approvalSettings: normalizedManagedApprovalSettings
+    approvalSettings: managedApprovalSettings!
     bastionEnabled: enclave.?bastionEnabled ?? true
     communityResourceId: communityResourceId
     enclaveDefaultSettings: {
