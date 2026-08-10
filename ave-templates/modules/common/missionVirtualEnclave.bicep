@@ -225,3 +225,7 @@ output resourceId string = virtualEnclaveResource.id
 output resourceName string = virtualEnclaveResource.name
 output resourceLocation string = virtualEnclaveResource.location
 output effectiveIdentityType string = identityType
+output managedResourceGroupName string = string(virtualEnclaveResource.properties.managedResourceGroupName)
+output enclaveVnetName string = string(virtualEnclaveResource.properties.enclaveVirtualNetwork.networkName)
+output enclaveVnetResourceId string = resourceId(subscription().subscriptionId, string(virtualEnclaveResource.properties.managedResourceGroupName), 'Microsoft.Network/virtualNetworks', string(virtualEnclaveResource.properties.enclaveVirtualNetwork.networkName))
+output subnetConfigurations array = virtualEnclaveResource.properties.enclaveVirtualNetwork.subnetConfigurations
