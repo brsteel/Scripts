@@ -90,9 +90,9 @@ param delegatedSubnetResourceId string
 @minLength(1)
 param delegatedPrivateDnsZoneResourceId string
 
-@description('Primary CMK identity resource ID.')
+@description('Primary PostgreSQL server identity resource ID (used for CMK key access).')
 @minLength(1)
-param cmkIdentityResourceId string
+param serverIdentityResourceId string
 
 @description('Primary versionless CMK URI.')
 @minLength(1)
@@ -134,7 +134,7 @@ resource flexibleServerResource 'Microsoft.DBforPostgreSQL/flexibleServers@2024-
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${cmkIdentityResourceId}': {}
+      '${serverIdentityResourceId}': {}
     }
   }
   sku: resolvedSku
@@ -151,7 +151,7 @@ resource flexibleServerResource 'Microsoft.DBforPostgreSQL/flexibleServers@2024-
     createMode: 'Default'
     dataEncryption: {
       primaryKeyURI: cmkKeyUri
-      primaryUserAssignedIdentityId: cmkIdentityResourceId
+      primaryUserAssignedIdentityId: serverIdentityResourceId
       type: 'AzureKeyVault'
     }
     highAvailability: resolvedHighAvailability

@@ -1,6 +1,9 @@
 targetScope = 'subscription'
 
 type deploymentContextType = {
+  @minLength(1)
+  @maxLength(5)
+  instance: string?
   tags: object?
 }
 
@@ -97,20 +100,23 @@ param deploymentContext deploymentContextType = {}
 @description('Serialized Phase A handoff from avePostgreSqlEnclaveDeployment.')
 param phaseA phaseAType
 
-@description('Managed or reference-only Mission network finalization mode. Existing enclaves default to reference-only unless explicitly approved for additive endpoint/connection creation.')
-param networkFinalization networkFinalizationDefinitionType
+@description('Managed or reference-only Mission network finalization mode. Defaults to Managed. Existing enclaves should explicitly select reference-only unless approved for additive endpoint/connection creation.')
+param networkFinalization networkFinalizationDefinitionType = {
+  mode: 'Managed'
+}
 
 @description('Managed or existing community endpoint plus enclave connection requests.')
 param communityConnectivity connectivityDefinitionType[] = []
 
 var tags = deploymentContext.?tags ?? {}
+var resolvedInstance = deploymentContext.?instance ?? '001'
 var enclaveSegments = split(phaseA.enclaveResourceId, '/')
 var enclaveSubscriptionId = enclaveSegments[2]
 var enclaveResourceGroupName = enclaveSegments[4]
 var communitySegments = split(phaseA.communityResourceId, '/')
 var communitySubscriptionId = communitySegments[2]
 var communityResourceGroupName = communitySegments[4]
-var communityName = communitySegments[8]
+var communityName = last(communitySegments)
 
 var finalizationExistingEndpointIds = networkFinalization.mode == 'ExistingReferenceOnly'
   ? networkFinalization.communityEndpointResourceIds
@@ -129,13 +135,13 @@ module existingFinalizationEndpointReaders './modules/existingCommunityEndpointS
   }
 }]
 
-module existingConnectivityEndpointReaders './modules/existingCommunityEndpointStateReader.bicep' = [for (connectivity, index) in communityConnectivity: {
+module existingConnectivityEndpointReaders './modules/existingCommunityEndpointStateReader.bicep' = [for (connectivity, index) in communityConnectivity: if (connectivity.endpoint.mode == 'existing') {
   name: 'existingConnectivityEndpoint${index}'
   scope: resourceGroup(communitySubscriptionId, communityResourceGroupName)
   params: {
     communityName: communityName
     expectedLocation: phaseA.location
-    expectedResourceId: connectivity.endpoint.mode == 'existing' ? connectivity.endpoint.resourceId : ''
+    expectedResourceId: connectivity.endpoint.resourceId
   }
 }]
 
@@ -152,7 +158,7 @@ module existingEnclaveConnectionReaders './modules/existingEnclaveConnectionStat
 }]
 
 var effectiveEndpointNames = [for (connectivity, index) in communityConnectivity: connectivity.endpoint.mode == 'managed'
-  ? (connectivity.endpoint.?name ?? 'ce-pg-${substring(uniqueString(phaseA.communityResourceId, string(connectivity.endpoint.ruleCollection), string(index)), 0, 8)}')
+  ? (connectivity.endpoint.?name ?? 'ce-pg-${take(uniqueString(phaseA.communityResourceId, string(connectivity.endpoint.ruleCollection), string(index)), 8)}')
   : last(split(connectivity.endpoint.resourceId, '/'))
 ]
 
@@ -174,7 +180,7 @@ var effectiveEndpointIds = [for (connectivity, index) in communityConnectivity: 
   : connectivity.endpoint.resourceId
 ]
 
-var connectionNames = [for (connectivity, index) in communityConnectivity: connectivity.?connectionName ?? 'conn-pg-${substring(uniqueString(phaseA.enclaveResourceId, effectiveEndpointIds[index], string(connectivity.sourceSubnets)), 0, 8)}']
+var connectionNames = [for (connectivity, index) in communityConnectivity: connectivity.?connectionName ?? 'ec-pg-${take(uniqueString(phaseA.enclaveResourceId, effectiveEndpointIds[index], string(connectivity.sourceSubnets), resolvedInstance), 8)}']
 var connectionSourceCidrs = [for connectivity in communityConnectivity: contains(connectivity.sourceSubnets, 'DelegatedPostgreSql') && contains(connectivity.sourceSubnets, 'PrivateEndpoints')
   ? '${phaseA.postgreSqlSubnetAddressPrefix},${phaseA.privateEndpointSubnetAddressPrefix}'
   : (contains(connectivity.sourceSubnets, 'DelegatedPostgreSql') ? phaseA.postgreSqlSubnetAddressPrefix : phaseA.privateEndpointSubnetAddressPrefix)

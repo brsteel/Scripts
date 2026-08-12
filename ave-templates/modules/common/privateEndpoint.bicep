@@ -56,19 +56,21 @@ var connectionProperties = {
   privateLinkServiceId: privateLinkConnection.privateLinkServiceResourceId
 }
 
+var requestMessage = privateLinkConnection.?requestMessage ?? ''
+
 var automaticConnection = union({
   name: privateLinkConnection.name
   properties: connectionProperties
-}, empty(privateLinkConnection.requestMessage ?? '') ? {} : {
+}, empty(requestMessage) ? {} : {
   properties: union(connectionProperties, {
-    requestMessage: privateLinkConnection.requestMessage
+    requestMessage: requestMessage
   })
 })
 
 var manualConnection = {
   name: privateLinkConnection.name
   properties: union(connectionProperties, {
-    requestMessage: privateLinkConnection.requestMessage
+    requestMessage: requestMessage
   })
 }
 

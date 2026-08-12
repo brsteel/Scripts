@@ -2,17 +2,21 @@ targetScope = 'subscription'
 
 type deploymentContextType = {
   location: string?
+  @minLength(1)
+  @maxLength(5)
+  instance: string?
   tags: object?
 }
 
 type phaseAType = {
   contractVersion: '3.0'
+  communityResourceId: string
   delegatedPrivateDnsZoneResourceId: string
   geoCmk: {
     mode: 'absent'
   }
   location: string
-  postgreSqlCmkIdentityResourceId: string
+  postgreSqlServerIdentityResourceId: string
   postgreSqlCmkKeyUri: string
   postgreSqlDnsSuffix: string
   postgreSqlPrivateLinkZoneName: string
@@ -167,9 +171,9 @@ type managedFlexibleServerType = {
   name: string?
   location: string?
   @minLength(1)
-  version: string
+  version: string?
   availabilityZone: string?
-  sku: postgreSqlSkuType
+  sku: postgreSqlSkuType?
   storage: postgreSqlStorageType?
   backup: postgreSqlBackupType?
   highAvailability: postgreSqlHighAvailabilityType?
@@ -196,7 +200,7 @@ type expectedFlexibleServerType = {
   activeDirectoryAuth: 'Enabled'
   passwordAuth: 'Disabled'
   tenantId: string
-  cmkIdentityResourceId: string
+  serverIdentityResourceId: string
   cmkKeyUri: string
 }
 
@@ -210,7 +214,7 @@ type existingFlexibleServerType = {
 @discriminator('mode')
 type flexibleServerDefinitionType = managedFlexibleServerType | existingFlexibleServerType
 
-@description('Deployment defaults. Location omission resolves to the Phase A foundation location.')
+@description('Deployment defaults. Location omission resolves to the Phase A foundation location; instance omission resolves to 001.')
 param deploymentContext deploymentContextType = {}
 
 @description('Frozen Phase B foundation handoff. Network and CMK resources are consumed as inputs and are never mutated by this workload template.')

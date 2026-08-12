@@ -1,67 +1,83 @@
 targetScope = 'resourceGroup'
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Reads the live, writable contract of an existing Microsoft Mission virtual
+// enclave so the caller can carry it forward unchanged through the single
+// enclave upsert path.
+//
+// This module never asserts an "expected configuration". Immutable and
+// caller-irrelevant enclave properties are read and reused as-is; additive
+// collections (subnets, Mission role assignments, maintenance principals,
+// governed services) are returned as the base that the caller unions its own
+// requests into.
+//
+// The module is only instantiated when an enclave resource ID was supplied.
+// When a new enclave is being created the caller substitutes empty bases, so
+// there is nothing to union and the same downstream expressions apply.
+// ──────────────────────────────────────────────────────────────────────────────
+
 @description('Name of the existing Microsoft Mission virtual enclave.')
 @minLength(1)
 param enclaveName string
-
-@description('Expected PostgreSQL subnet name. Leave empty when the additive-update flow will create the subnet during this deployment.')
-param postgreSqlSubnetName string = ''
-
-@description('Expected private endpoint subnet name. Leave empty when the additive-update flow will create the subnet during this deployment.')
-param privateEndpointSubnetName string = ''
 
 resource enclaveResource 'Microsoft.Mission/virtualEnclaves@2026-03-01-preview' existing = {
   name: enclaveName
 }
 
-var subnetConfigurations = enclaveResource.properties.enclaveVirtualNetwork.subnetConfigurations
-var postgreSqlSubnetMatches = empty(postgreSqlSubnetName) ? [] : filter(
-  subnetConfigurations,
-  subnet => toLower(string(subnet.subnetName)) == toLower(postgreSqlSubnetName)
-)
-var privateEndpointSubnetMatches = empty(privateEndpointSubnetName) ? [] : filter(
-  subnetConfigurations,
-  subnet => toLower(string(subnet.subnetName)) == toLower(privateEndpointSubnetName)
-)
+var liveProperties = enclaveResource.properties
+var liveEnclaveVirtualNetwork = liveProperties.enclaveVirtualNetwork
+var liveSubnetConfigurations = liveEnclaveVirtualNetwork.subnetConfigurations
+var liveMaintenanceModeConfiguration = liveProperties.?maintenanceModeConfiguration ?? {}
+
+// Mission returns read-only projections (addressPrefix, subnetResourceId,
+// networkSecurityGroupResourceId) alongside the writable subnet contract. Only
+// the writable triple may be sent back on a PUT.
+var normalizedSubnetConfigurations = map(liveSubnetConfigurations, subnet => union({
+  networkPrefixSize: int(subnet.networkPrefixSize)
+  subnetName: string(subnet.subnetName)
+}, empty(string(subnet.?subnetDelegation ?? '')) ? {} : {
+  subnetDelegation: string(subnet.subnetDelegation)
+}))
+
 var normalizedApprovalSettings = {
-  connectionCreation: string(enclaveResource.properties.?approvalSettings.?connectionCreation.?approvalPolicy ?? 'NotRequired') == 'Required'
+  connectionCreation: string(liveProperties.?approvalSettings.?connectionCreation.?approvalPolicy ?? 'NotRequired') == 'Required'
     ? {
         approvalPolicy: 'Required'
-        mandatoryApprovers: enclaveResource.properties.?approvalSettings.?connectionCreation.?mandatoryApprovers ?? []
-        minimumApproversRequired: int(enclaveResource.properties.?approvalSettings.?connectionCreation.?minimumApproversRequired ?? 0)
+        mandatoryApprovers: liveProperties.?approvalSettings.?connectionCreation.?mandatoryApprovers ?? []
+        minimumApproversRequired: int(liveProperties.?approvalSettings.?connectionCreation.?minimumApproversRequired ?? 0)
       }
     : {
         approvalPolicy: 'NotRequired'
         mandatoryApprovers: []
         minimumApproversRequired: 0
       }
-  connectionUpdate: string(enclaveResource.properties.?approvalSettings.?connectionUpdate.?approvalPolicy ?? 'NotRequired') == 'Required'
+  connectionUpdate: string(liveProperties.?approvalSettings.?connectionUpdate.?approvalPolicy ?? 'NotRequired') == 'Required'
     ? {
         approvalPolicy: 'Required'
-        mandatoryApprovers: enclaveResource.properties.?approvalSettings.?connectionUpdate.?mandatoryApprovers ?? []
-        minimumApproversRequired: int(enclaveResource.properties.?approvalSettings.?connectionUpdate.?minimumApproversRequired ?? 0)
+        mandatoryApprovers: liveProperties.?approvalSettings.?connectionUpdate.?mandatoryApprovers ?? []
+        minimumApproversRequired: int(liveProperties.?approvalSettings.?connectionUpdate.?minimumApproversRequired ?? 0)
       }
     : {
         approvalPolicy: 'NotRequired'
         mandatoryApprovers: []
         minimumApproversRequired: 0
       }
-  enclaveEndpointUpdate: string(enclaveResource.properties.?approvalSettings.?enclaveEndpointUpdate.?approvalPolicy ?? 'NotRequired') == 'Required'
+  enclaveEndpointUpdate: string(liveProperties.?approvalSettings.?enclaveEndpointUpdate.?approvalPolicy ?? 'NotRequired') == 'Required'
     ? {
         approvalPolicy: 'Required'
-        mandatoryApprovers: enclaveResource.properties.?approvalSettings.?enclaveEndpointUpdate.?mandatoryApprovers ?? []
-        minimumApproversRequired: int(enclaveResource.properties.?approvalSettings.?enclaveEndpointUpdate.?minimumApproversRequired ?? 0)
+        mandatoryApprovers: liveProperties.?approvalSettings.?enclaveEndpointUpdate.?mandatoryApprovers ?? []
+        minimumApproversRequired: int(liveProperties.?approvalSettings.?enclaveEndpointUpdate.?minimumApproversRequired ?? 0)
       }
     : {
         approvalPolicy: 'NotRequired'
         mandatoryApprovers: []
         minimumApproversRequired: 0
       }
-  enclaveMaintenanceMode: string(enclaveResource.properties.?approvalSettings.?enclaveMaintenanceMode.?approvalPolicy ?? 'NotRequired') == 'Required'
+  enclaveMaintenanceMode: string(liveProperties.?approvalSettings.?enclaveMaintenanceMode.?approvalPolicy ?? 'NotRequired') == 'Required'
     ? {
         approvalPolicy: 'Required'
-        mandatoryApprovers: enclaveResource.properties.?approvalSettings.?enclaveMaintenanceMode.?mandatoryApprovers ?? []
-        minimumApproversRequired: int(enclaveResource.properties.?approvalSettings.?enclaveMaintenanceMode.?minimumApproversRequired ?? 0)
+        mandatoryApprovers: liveProperties.?approvalSettings.?enclaveMaintenanceMode.?mandatoryApprovers ?? []
+        minimumApproversRequired: int(liveProperties.?approvalSettings.?enclaveMaintenanceMode.?minimumApproversRequired ?? 0)
       }
     : {
         approvalPolicy: 'NotRequired'
@@ -73,49 +89,29 @@ var normalizedApprovalSettings = {
 output resourceId string = enclaveResource.id
 output name string = enclaveResource.name
 output location string = enclaveResource.location
-output communityResourceId string = string(enclaveResource.properties.communityResourceId)
-output managedResourceGroupName string = string(enclaveResource.properties.managedResourceGroupName)
-output vnetName string = string(enclaveResource.properties.enclaveVirtualNetwork.networkName)
-output vnetResourceId string = resourceId(subscription().subscriptionId, string(enclaveResource.properties.managedResourceGroupName), 'Microsoft.Network/virtualNetworks', string(enclaveResource.properties.enclaveVirtualNetwork.networkName))
-output hasExplicitAllowSubnetCommunication bool = contains(enclaveResource.properties.enclaveVirtualNetwork, 'allowSubnetCommunication')
-output allowSubnetCommunication bool = bool(enclaveResource.properties.enclaveVirtualNetwork.allowSubnetCommunication ?? true)
-output hasExplicitBastionEnabled bool = contains(enclaveResource.properties, 'bastionEnabled')
-output bastionEnabled bool = bool(enclaveResource.properties.?bastionEnabled ?? true)
-output hasExplicitDiagnosticDestination bool = contains(enclaveResource.properties, 'enclaveDefaultSettings') && contains(enclaveResource.properties.enclaveDefaultSettings, 'diagnosticDestination')
-output diagnosticDestination string = string(enclaveResource.properties.?enclaveDefaultSettings.?diagnosticDestination ?? 'Both')
-output rbacInheritance string = string(enclaveResource.properties.rbacInheritance)
-output workloadResourceVisibility string = string(enclaveResource.properties.workloadResourceVisibility)
+output tags object = enclaveResource.?tags ?? {}
+output identityType string = string(enclaveResource.?identity.?type ?? 'None')
+output communityResourceId string = string(liveProperties.communityResourceId)
+output managedResourceGroupName string = string(liveProperties.managedResourceGroupName)
+output vnetName string = string(liveEnclaveVirtualNetwork.networkName)
+output vnetResourceId string = resourceId(subscription().subscriptionId, string(liveProperties.managedResourceGroupName), 'Microsoft.Network/virtualNetworks', string(liveEnclaveVirtualNetwork.networkName))
+
+output networkName string = string(liveEnclaveVirtualNetwork.?networkName ?? '')
+output customCidrRange string = string(liveEnclaveVirtualNetwork.?customCidrRange ?? '')
+output networkSize string = string(liveEnclaveVirtualNetwork.?networkSize ?? '')
+output allowSubnetCommunication bool = bool(liveEnclaveVirtualNetwork.?allowSubnetCommunication ?? true)
+output subnetConfigurations array = normalizedSubnetConfigurations
+
+output bastionEnabled bool = bool(liveProperties.?bastionEnabled ?? true)
+output diagnosticDestination string = string(liveProperties.?enclaveDefaultSettings.?diagnosticDestination ?? 'Both')
+output rbacInheritance string = string(liveProperties.?rbacInheritance ?? 'Disabled')
+output workloadResourceVisibility string = string(liveProperties.?workloadResourceVisibility ?? 'Disabled')
+output dedicatedHubResourceId string = string(liveProperties.?dedicatedHubResourceId ?? '')
+output monitoringSettings object = liveProperties.?monitoringSettings ?? {}
 output approvalSettings object = normalizedApprovalSettings
-output governedServiceList array = enclaveResource.properties.?governedServiceList ?? []
-output subnetConfigurations array = subnetConfigurations
-output postgreSqlSubnet object = length(postgreSqlSubnetMatches) == 0 ? {
-  addressPrefix: ''
-  name: ''
-  networkPrefixSize: 0
-  networkSecurityGroupResourceId: ''
-  resourceId: ''
-  subnetDelegation: ''
-} : {
-  addressPrefix: string(postgreSqlSubnetMatches[0].addressPrefix)
-  name: string(postgreSqlSubnetMatches[0].subnetName)
-  networkPrefixSize: int(postgreSqlSubnetMatches[0].networkPrefixSize)
-  networkSecurityGroupResourceId: string(postgreSqlSubnetMatches[0].networkSecurityGroupResourceId)
-  resourceId: string(postgreSqlSubnetMatches[0].subnetResourceId)
-  subnetDelegation: string(postgreSqlSubnetMatches[0].?subnetDelegation ?? '')
-}
-output privateEndpointSubnet object = length(privateEndpointSubnetMatches) == 0 ? {
-  addressPrefix: ''
-  name: ''
-  networkPrefixSize: 0
-  networkSecurityGroupResourceId: ''
-  resourceId: ''
-  subnetDelegation: ''
-} : {
-  addressPrefix: string(privateEndpointSubnetMatches[0].addressPrefix)
-  name: string(privateEndpointSubnetMatches[0].subnetName)
-  networkPrefixSize: int(privateEndpointSubnetMatches[0].networkPrefixSize)
-  networkSecurityGroupResourceId: string(privateEndpointSubnetMatches[0].networkSecurityGroupResourceId)
-  resourceId: string(privateEndpointSubnetMatches[0].subnetResourceId)
-  subnetDelegation: string(privateEndpointSubnetMatches[0].?subnetDelegation ?? '')
-}
-output maintenancePrincipals array = enclaveResource.properties.?maintenanceModeConfiguration.?principals ?? []
+output governedServiceList array = liveProperties.?governedServiceList ?? []
+output enclaveRoleAssignments array = liveProperties.?enclaveRoleAssignments ?? []
+output workloadRoleAssignments array = liveProperties.?workloadRoleAssignments ?? []
+output maintenancePrincipals array = liveMaintenanceModeConfiguration.?principals ?? []
+output maintenanceJustification string = string(liveMaintenanceModeConfiguration.?justification ?? 'Governance')
+output maintenanceMode string = string(liveMaintenanceModeConfiguration.?mode ?? 'Advanced')

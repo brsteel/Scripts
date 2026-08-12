@@ -1,6 +1,10 @@
 // ──────────────────────────────────────────────────────────────────────────────
-// Scenario: Existing Compatible / Reference-Only — existing enclave and community,
-// reference-only network finalization, existing PostgreSQL Flexible Server.
+// Scenario: Existing Compatible — existing enclave and community, reference-only
+// network finalization, existing PostgreSQL Flexible Server.
+//
+// The enclave is targeted by resourceId; its live configuration is read and
+// reused, and this workload's subnets already exist on it, so the enclave PUT
+// is an idempotent no-op.
 //
 // Deploy with:
 //   az deployment sub create \
@@ -33,103 +37,29 @@ param community = {
 }
 
 // ─── Enclave ──────────────────────────────────────────────────────────────────
-// ReferenceOnly: the deployment reads and validates the live enclave state but
-// does not modify it. The expectedConfiguration must match the live state exactly
-// (approval policies, subnet details, location, governed services, etc.).
+// resourceId is supplied, so the deployment targets an existing enclave. Live
+// state is read and carried forward verbatim for immutable properties
+// (location, address space, approval settings, Bastion, diagnostic destination,
+// subnet communication, RBAC inheritance, workload visibility). The only values
+// declared here are this workload's own subnet names, which are unioned into
+// the enclave's live subnet set keyed by name. Because the subnets below
+// already exist on the enclave with these names, this is a no-op reuse; if they
+// did not exist they would be added additively.
 param enclave = {
-  mode: 'ReferenceOnly'
   resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-enclave/providers/Microsoft.Mission/virtualEnclaves/existing-enclave' // ← replace
-  expectedConfiguration: {
-    approvalSettings: {
-      connectionCreation: {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: [
-          {
-            approverEntraId: '55555555-5555-5555-5555-555555555555' // ← replace
-          }
-        ]
-        minimumApproversRequired: 1
-      }
-      connectionUpdate: {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: [
-          {
-            approverEntraId: '66666666-6666-6666-6666-666666666666' // ← replace
-          }
-        ]
-        minimumApproversRequired: 1
-      }
-      enclaveEndpointUpdate: {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: [
-          {
-            approverEntraId: '77777777-7777-7777-7777-777777777777' // ← replace
-          }
-        ]
-        minimumApproversRequired: 1
-      }
-      enclaveMaintenanceMode: {
-        approvalPolicy: 'Required'
-        mandatoryApprovers: [
-          {
-            approverEntraId: '88888888-8888-8888-8888-888888888888' // ← replace
-          }
-        ]
-        minimumApproversRequired: 1
-      }
-    }
-    bastionEnabled: 'Enabled'
-    communityResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-community/providers/Microsoft.Mission/communities/existing-community' // ← replace
-    diagnosticDestination: 'Both'
-    governedServiceList: [
-      {
-        enforcement: 'Enabled'
-        option: 'Allow'
-        policyAction: 'Enforce'
-        serviceId: 'KeyVault'
-      }
-      {
-        enforcement: 'Enabled'
-        option: 'Allow'
-        policyAction: 'Enforce'
-        serviceId: 'PostgreSQL'
-      }
-      {
-        enforcement: 'Enabled'
-        option: 'Allow'
-        policyAction: 'Enforce'
-        serviceId: 'PrivateDNSZones'
-      }
-    ]
-    location: 'usgovvirginia' // ← replace with your Azure region
-    network: {
-      allowSubnetCommunication: 'Enabled'
-      postgreSqlSubnet: {
-        addressPrefix: '10.250.10.0/24' // ← replace
-        name: 'snet-postgresql'         // ← replace
-        networkPrefixSize: 24
-        networkSecurityGroupResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-managed/providers/Microsoft.Network/networkSecurityGroups/nsg-postgresql' // ← replace
-        resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-managed/providers/Microsoft.Network/virtualNetworks/vnet-existing-enclave/subnets/snet-postgresql' // ← replace
-        subnetDelegation: 'Microsoft.DBforPostgreSQL/flexibleServers'
-      }
-      privateEndpointSubnet: {
-        addressPrefix: '10.250.20.0/24' // ← replace
-        name: 'snet-private-endpoints'  // ← replace
-        networkPrefixSize: 24
-        networkSecurityGroupResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-managed/providers/Microsoft.Network/networkSecurityGroups/nsg-private-endpoints' // ← replace
-        resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-managed/providers/Microsoft.Network/virtualNetworks/vnet-existing-enclave/subnets/snet-private-endpoints' // ← replace
-        subnetDelegation: ''
-      }
-    }
-    rbacInheritance: 'Disabled'
-    workloadResourceVisibility: 'Disabled'
+  postgreSqlSubnet: {
+    name: 'snet-postgresql' // ← replace with the live delegated subnet name
+  }
+  privateEndpointSubnet: {
+    name: 'snet-private-endpoints' // ← replace with the live private endpoint subnet name
   }
 }
 
 // ─── Workload ─────────────────────────────────────────────────────────────────
+// Pin the managed workload registration to the resource group containing the
+// existing server. The workload name remains independently defaulted.
 param workload = {
   mode: 'managed'
-  name: 'pgworkload02'
   resourceGroupName: 'rg-contoso-existing-postgresql-workload' // ← replace
 }
 
@@ -137,9 +67,14 @@ param workload = {
 // All resources are existing. Supply the correct resource IDs and expected
 // configuration values that match the live state.
 param foundation = {
-  cmkIdentity: {
+  // Existing mode: this identity must already have been granted the Microsoft
+  // Graph "User.Read.All" application permission by a suitably privileged
+  // Entra administrator before this deployment runs. This template never
+  // creates or grants Graph permissions for an existing identity; Azure RBAC
+  // alone is not sufficient for PostgreSQL Entra administrator creation.
+  serverIdentity: {
     mode: 'existing'
-    resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-workload/providers/Microsoft.ManagedIdentity/userAssignedIdentities/uai-postgresql-cmk' // ← replace
+    resourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-workload/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-existing-community-pgsql-cmk' // ← replace
     expectedConfiguration: {
       clientId: '33333333-3333-3333-3333-333333333333'   // ← replace
       location: 'usgovvirginia'                           // ← replace
@@ -194,11 +129,9 @@ param networkFinalization = {
     '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-community/providers/Microsoft.Mission/communities/existing-community/communityEndpoints/ce-postgresql' // ← replace
   ]
   enclaveConnectionResourceIds: [
-    '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-enclave/providers/Microsoft.Mission/enclaveConnections/conn-postgresql' // ← replace
+    '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-enclave/providers/Microsoft.Mission/enclaveConnections/ec-postgresql' // ← replace
   ]
 }
-
-param communityConnectivity = []
 
 // ─── PostgreSQL Flexible Server ────────────────────────────────────────────────
 // Existing server: supply the resource ID and the full expected configuration
@@ -212,7 +145,7 @@ param server = {
       geoRedundancy: 'Disabled'
       retentionDays: 35
     }
-    cmkIdentityResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-workload/providers/Microsoft.ManagedIdentity/userAssignedIdentities/uai-postgresql-cmk' // ← replace
+    serverIdentityResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-workload/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-existing-community-pgsql-cmk' // ← replace
     cmkKeyUri: 'https://kvexisting.vault.azure.net/keys/postgresql-cmk' // ← replace
     delegatedSubnetResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-mission-managed/providers/Microsoft.Network/virtualNetworks/vnet-existing-enclave/subnets/snet-postgresql' // ← replace
     highAvailability: {
@@ -225,7 +158,7 @@ param server = {
     passwordAuth: 'Disabled'
     privateDnsZoneResourceId: '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-workload/providers/Microsoft.Network/privateDnsZones/ave-example.postgres.database.usgovcloudapi.net' // ← replace
     sku: {
-      name: 'Standard_D4ds_v5'
+      name: 'Standard_D4ds_v4'
       tier: 'GeneralPurpose'
     }
     storage: {

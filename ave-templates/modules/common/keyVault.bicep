@@ -50,6 +50,7 @@ resource keyVaultResource 'Microsoft.KeyVault/vaults@2023-07-01' = {
   tags: tags
   properties: {
     enablePurgeProtection: true
+    enableSoftDelete: true
     enableRbacAuthorization: true
     enabledForDeployment: enabledForDeployment
     enabledForDiskEncryption: enabledForDiskEncryption

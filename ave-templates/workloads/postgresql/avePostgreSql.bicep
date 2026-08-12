@@ -16,6 +16,10 @@ type deploymentContextType = {
   subscriptionId: string?
   @description('Override the deployment location. Omit to use the ARM deployment location.')
   location: string?
+  @description('CAF instance discriminator used by generated names. Omit to use 001; use a short alphanumeric value such as 002 or a01.')
+  @minLength(1)
+  @maxLength(5)
+  instance: string?
   @description('Tags applied to all created resources.')
   tags: object?
 }
@@ -52,9 +56,7 @@ type communityDefinitionType = managedCommunityType | existingCommunityType
 
 // ─── Enclave ──────────────────────────────────────────────────────────────────
 
-type approvalPolicyType = 'NotRequired' | 'Required'
 type diagnosticDestinationType = 'Both' | 'CommunityOnly' | 'EnclaveOnly'
-type toggleStateType = 'Disabled' | 'Enabled'
 
 type mandatoryApproverType = {
   @minLength(1)
@@ -84,14 +86,12 @@ type approvalSettingsType = {
 }
 
 type subnetRequestType = {
-  name: string?
-  networkPrefixSize: int
-}
-
-type additiveSubnetRequestType = {
+  @description('Subnet name. Omit to use the workload default. For an existing enclave, a live subnet with this name is reused additively.')
   @minLength(1)
-  name: string
-  networkPrefixSize: int
+  name: string?
+  @description('Subnet prefix size. Omit to reuse the live prefix size when the subnet already exists, or the workload default (24) when it does not.')
+  @minValue(1)
+  networkPrefixSize: int?
 }
 
 type missionPrincipalType = {
@@ -105,113 +105,66 @@ type missionRoleAssignmentType = {
   roleDefinitionId: string
 }
 
-type governedServiceExpectationType = {
-  enforcement: 'Enabled'
-  option: 'Allow'
-  policyAction: 'Enforce'
-  serviceId: 'KeyVault' | 'PostgreSQL' | 'PrivateDNSZones'
-}
+// One contract covers both scenarios. Supplying resourceId points the
+// deployment at an existing enclave; omitting it creates a new one. Both flow
+// through the same code path: additive collections are unioned with whatever
+// the live enclave already declares (an empty base when creating), and
+// immutable enclave properties are read from live state and carried forward
+// verbatim instead of being asserted against a caller-supplied expectation.
 
-type expectedEnclaveSubnetType = {
-  addressPrefix: string
-  name: string
-  networkPrefixSize: int
-  networkSecurityGroupResourceId: string
-  resourceId: string
-  subnetDelegation: string
-}
-
-type referenceOnlyExpectedEnclaveType = {
-  approvalSettings: approvalSettingsType
-  bastionEnabled: toggleStateType
-  communityResourceId: string
-  diagnosticDestination: diagnosticDestinationType
-  governedServiceList: governedServiceExpectationType[]
-  location: string
-  network: {
-    allowSubnetCommunication: toggleStateType
-    postgreSqlSubnet: expectedEnclaveSubnetType
-    privateEndpointSubnet: expectedEnclaveSubnetType
-  }
-  rbacInheritance: 'Disabled'
-  workloadResourceVisibility: 'Disabled'
-}
-
-type additiveExistingEnclaveExpectedType = {
-  approvalSettings: approvalSettingsType
-  bastionEnabled: toggleStateType
-  communityResourceId: string
-  diagnosticDestination: diagnosticDestinationType
-  governedServiceList: governedServiceExpectationType[]
-  location: string
-  network: {
-    allowSubnetCommunication: toggleStateType
-  }
-  rbacInheritance: 'Disabled'
-  workloadResourceVisibility: 'Disabled'
-}
-
-type managedEnclaveType = {
-  mode: 'managed'
+type enclaveDefinitionType = {
+  @description('Existing Mission virtual enclave resource ID. Omit to create a new enclave.')
   @minLength(1)
-  name: string
+  resourceId: string?
+
+  @description('Enclave name. Used only when creating a new enclave; the live name is used when resourceId is supplied.')
   @minLength(1)
-  resourceGroupName: string
+  name: string?
+
+  @description('Enclave resource group name. Used only when creating a new enclave; the resource group is parsed from resourceId otherwise.')
   @minLength(1)
-  addressSpaceCidr: string
-  approvalSettings: approvalSettingsType
-  postgreSqlSubnet: subnetRequestType
-  privateEndpointSubnet: subnetRequestType
+  resourceGroupName: string?
+
+  @description('Enclave address space. Required when creating a new enclave; read and reused from live state when resourceId is supplied.')
+  @minLength(1)
+  addressSpaceCidr: string?
+
+  @description('All four Mission approval gates. Required when creating a new enclave; read and reused from live state when resourceId is supplied.')
+  approvalSettings: approvalSettingsType?
+
+  @description('Enclave subnet-to-subnet communication. Used only when creating a new enclave; read and reused from live state otherwise.')
   allowSubnetCommunication: bool?
+
+  @description('Mission-managed Bastion. Used only when creating a new enclave; read and reused from live state otherwise.')
   bastionEnabled: bool?
+
+  @description('Enclave default diagnostic destination. Used only when creating a new enclave; read and reused from live state otherwise.')
   diagnosticDestination: diagnosticDestinationType?
+
+  @description('This workload\'s delegated PostgreSQL subnet request. Unioned into the enclave subnet set keyed by name.')
+  postgreSqlSubnet: subnetRequestType?
+
+  @description('This workload\'s private endpoint subnet request. Unioned into the enclave subnet set keyed by name.')
+  privateEndpointSubnet: subnetRequestType?
+
+  @description('Additional enclave-scope Mission role assignments. Always unioned with whatever the enclave already declares.')
   enclaveRoleAssignments: missionRoleAssignmentType[]?
+
+  @description('Additional workload-scope Mission role assignments. Always unioned with whatever the enclave already declares.')
   workloadRoleAssignments: missionRoleAssignmentType[]?
+
+  @description('Additional Mission maintenance-mode principals. Always unioned with the live principal set and the deployment principal.')
   additionalMaintenancePrincipals: missionPrincipalType[]?
 }
-
-type existingPrivateEndpointSubnetReferenceType = {
-  mode: 'Existing'
-  expectedConfiguration: expectedEnclaveSubnetType
-}
-
-type additivePrivateEndpointSubnetRequestType = {
-  mode: 'New'
-  @minLength(1)
-  name: string
-  networkPrefixSize: int
-}
-
-@discriminator('mode')
-type additivePrivateEndpointSubnetType = existingPrivateEndpointSubnetReferenceType | additivePrivateEndpointSubnetRequestType
-
-type existingReferenceOnlyEnclaveType = {
-  mode: 'ReferenceOnly'
-  @minLength(1)
-  resourceId: string
-  expectedConfiguration: referenceOnlyExpectedEnclaveType
-}
-
-type existingAdditiveSubnetUpdateEnclaveType = {
-  mode: 'AdditiveSubnetUpdate'
-  @minLength(1)
-  resourceId: string
-  expectedConfiguration: additiveExistingEnclaveExpectedType
-  postgreSqlSubnet: additiveSubnetRequestType
-  privateEndpointSubnet: additivePrivateEndpointSubnetType
-}
-
-@discriminator('mode')
-type enclaveDefinitionType = managedEnclaveType | existingReferenceOnlyEnclaveType | existingAdditiveSubnetUpdateEnclaveType
 
 // ─── Workload ─────────────────────────────────────────────────────────────────
 
 type managedWorkloadType = {
   mode: 'managed'
   @minLength(1)
-  name: string
+  name: string?
   @minLength(1)
-  resourceGroupName: string
+  resourceGroupName: string?
 }
 
 type existingWorkloadType = {
@@ -238,16 +191,30 @@ type managedIdentityType = {
   name: string?
   location: string?
   resourceGroupName: string?
+  @description('Controls whether the Microsoft Graph "User.Read.All" application permission is granted to this managed identity through the Microsoft Graph Bicep extension. Defaults to Managed. Set to Skip only when the grant is applied out-of-band by an equivalent process. This is the template\'s intended permission for PostgreSQL Entra administrator creation; see the PostgreSQL workload README for the current, live-tested status of that dependency.')
+  graphPermissionGrant: graphPermissionGrantType?
 }
 
 type existingIdentityType = {
   mode: 'existing'
+  @description('Full resource ID of a pre-created user-assigned managed identity that has already been granted Microsoft Graph "User.Read.All" by a suitably privileged Entra administrator. This template never creates or grants Graph permissions for an existing identity.')
   resourceId: string
   expectedConfiguration: expectedIdentityType
 }
 
 @discriminator('mode')
 type identityDefinitionType = managedIdentityType | existingIdentityType
+
+type managedGraphPermissionGrantType = {
+  mode: 'Managed'
+}
+
+type skipGraphPermissionGrantType = {
+  mode: 'Skip'
+}
+
+@discriminator('mode')
+type graphPermissionGrantType = managedGraphPermissionGrantType | skipGraphPermissionGrantType
 
 type expectedKeyVaultType = {
   location: string
@@ -321,7 +288,7 @@ type privateDnsDefinitionType = {
 }
 
 type foundationDefinitionType = {
-  cmkIdentity: identityDefinitionType
+  serverIdentity: identityDefinitionType
   key: keyDefinitionType
   keyVault: keyVaultDefinitionType
   privateDns: privateDnsDefinitionType
@@ -535,9 +502,9 @@ type managedFlexibleServerType = {
   name: string?
   location: string?
   @minLength(1)
-  version: string
+  version: string?
   availabilityZone: string?
-  sku: postgreSqlSkuType
+  sku: postgreSqlSkuType?
   storage: postgreSqlStorageType?
   backup: postgreSqlBackupType?
   highAvailability: postgreSqlHighAvailabilityType?
@@ -564,7 +531,7 @@ type expectedFlexibleServerType = {
   activeDirectoryAuth: 'Enabled'
   passwordAuth: 'Disabled'
   tenantId: string
-  cmkIdentityResourceId: string
+  serverIdentityResourceId: string
   cmkKeyUri: string
 }
 
@@ -585,26 +552,48 @@ param enableTelemetry bool = true
 
 // ─── Top-level parameters ─────────────────────────────────────────────────────
 
-@description('Deployment defaults. Location and subscription omission resolve to the ARM deployment context.')
+@description('Deployment defaults. Location and subscription omission resolve to the ARM deployment context; instance omission resolves to 001.')
 param deploymentContext deploymentContextType = {}
 
-@description('Deployment principal seeded into the Mission maintenance-principal set for managed enclaves.')
+@description('Deployment principal seeded into the Mission maintenance-principal set and used for the managed default Mission workload-scope Owner assignment for managed enclaves.')
 param deploymentPrincipal deploymentPrincipalType
 
 @description('Managed-or-existing Mission community definition.')
 param community communityDefinitionType
 
-@description('Managed or existing Mission enclave. Managed callers must explicitly declare all four approval settings. Existing enclaves must choose ReferenceOnly or AdditiveSubnetUpdate.')
+@description('Mission virtual enclave. Omit resourceId to create a new enclave (addressSpaceCidr and all four approval settings are then required). Supply resourceId to target an existing enclave: its immutable properties are read and reused, and this workload\'s subnets, role assignments, and maintenance principals are unioned with the live state.')
 param enclave enclaveDefinitionType
 
-@description('Mission workload registration. Use managed to create a new workload resource group; use existing to bind to an already-registered workload.')
-param workload workloadDefinitionType
+@description('Mission workload registration. Defaults to managed with Community-derived names; use existing to bind to an already-registered workload.')
+param workload workloadDefinitionType = {
+  mode: 'managed'
+}
 
-@description('CMK identity, Key Vault, CMK key, and private DNS resources consumed by PostgreSQL Flexible Server.')
-param foundation foundationDefinitionType
+@description('Server identity, Key Vault, CMK key, and private DNS resources consumed by PostgreSQL Flexible Server. Defaults every child to managed mode.')
+param foundation foundationDefinitionType = {
+  serverIdentity: {
+    mode: 'managed'
+  }
+  key: {
+    mode: 'managed'
+  }
+  keyVault: {
+    mode: 'managed'
+  }
+  privateDns: {
+    delegatedZone: {
+      mode: 'managed'
+    }
+    keyVaultPrivateLinkZone: {
+      mode: 'managed'
+    }
+  }
+}
 
-@description('Mission network finalization mode. Managed creates community endpoints and enclave connections. Existing modes pass through or extend previously captured resource IDs.')
-param networkFinalization networkFinalizationDefinitionType
+@description('Mission network finalization mode. Defaults to Managed, which creates requested community endpoints and enclave connections. Existing modes pass through or extend previously captured resource IDs.')
+param networkFinalization networkFinalizationDefinitionType = {
+  mode: 'Managed'
+}
 
 @description('Optional Mission community endpoint and enclave connection requests for Phase B. Leave empty when networkFinalization.mode is ExistingReferenceOnly.')
 param communityConnectivity connectivityDefinitionType[] = []
@@ -634,6 +623,7 @@ module phaseB './avePostgreSqlEnclaveNetworkFinalization.bicep' = {
   params: {
     communityConnectivity: communityConnectivity
     deploymentContext: {
+      instance: deploymentContext.?instance
       tags: deploymentContext.?tags
     }
     networkFinalization: networkFinalization

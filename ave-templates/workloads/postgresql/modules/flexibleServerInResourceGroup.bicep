@@ -2,19 +2,24 @@ targetScope = 'resourceGroup'
 
 type deploymentContextType = {
   location: string?
+  @minLength(1)
+  @maxLength(5)
+  instance: string?
   tags: object?
 }
 
 type foundationPhaseAType = {
   contractVersion: '3.0'
+  communityResourceId: string
   delegatedPrivateDnsZoneResourceId: string
   geoCmk: {
     mode: 'absent'
   }
   location: string
-  postgreSqlCmkIdentityResourceId: string
+  postgreSqlServerIdentityResourceId: string
   postgreSqlCmkKeyUri: string
   postgreSqlSubnetResourceId: string
+  targetSubscriptionId: string
   workloadResourceId: string
 }
 
@@ -161,9 +166,9 @@ type managedFlexibleServerType = {
   name: string?
   location: string?
   @minLength(1)
-  version: string
+  version: string?
   availabilityZone: string?
-  sku: postgreSqlSkuType
+  sku: postgreSqlSkuType?
   storage: postgreSqlStorageType?
   backup: postgreSqlBackupType?
   highAvailability: postgreSqlHighAvailabilityType?
@@ -190,7 +195,7 @@ type expectedFlexibleServerType = {
   activeDirectoryAuth: 'Enabled'
   passwordAuth: 'Disabled'
   tenantId: string
-  cmkIdentityResourceId: string
+  serverIdentityResourceId: string
   cmkKeyUri: string
 }
 
@@ -213,11 +218,22 @@ param foundation foundationType
 @description('Managed-or-existing PostgreSQL Flexible Server definition.')
 param server flexibleServerDefinitionType
 
-var resolvedServerName = server.?name ?? 'psql-${substring(uniqueString(foundation.phaseA.workloadResourceId), 0, 13)}'
+var communityName = last(split(foundation.phaseA.communityResourceId, '/'))
+var normalizedCommunityName = toLower(communityName)
+var resolvedInstance = !empty(deploymentContext.?instance) ? deploymentContext.instance! : '001'
+var communityUniqueSuffix = take(uniqueString(foundation.phaseA.targetSubscriptionId, communityName, resolvedInstance), 8)
+var defaultServerName = 'pgsql-${take(normalizedCommunityName, 48)}-${communityUniqueSuffix}'
+var defaultDatabaseName = 'db_${take(replace(normalizedCommunityName, '-', '_'), 53 - length(resolvedInstance))}_pgsql_${resolvedInstance}'
+var resolvedServerName = server.mode == 'managed' ? server.?name ?? defaultServerName : ''
 var resolvedLocation = server.?location ?? deploymentContext.?location ?? foundation.phaseA.location
 var resolvedTags = deploymentContext.?tags ?? {}
-var resolvedSku = server.mode == 'managed' ? server.sku : server.expectedConfiguration.sku
-var resolvedVersion = server.mode == 'managed' ? server.version : server.expectedConfiguration.version
+var resolvedSku = server.mode == 'managed'
+  ? (server.?sku ?? {
+      name: 'Standard_D4ds_v4'
+      tier: 'GeneralPurpose'
+    })
+  : server.expectedConfiguration.sku
+var resolvedVersion = server.mode == 'managed' ? server.?version ?? '16' : server.expectedConfiguration.version
 var resolvedStorage = server.mode == 'managed'
   ? (server.?storage ?? {})
   : server.expectedConfiguration.storage
@@ -230,7 +246,14 @@ var resolvedHighAvailability = server.mode == 'managed'
     })
   : server.expectedConfiguration.highAvailability
 var resolvedAdministrators = server.mode == 'managed' ? server.administrators : []
-var resolvedAdministratorTenantId = resolvedAdministrators[0].tenantId
+var resolvedAdministratorTenantId = resolvedAdministrators[?0].?tenantId ?? ''
+var resolvedDatabases = server.mode == 'managed'
+  ? (server.?databases ?? [
+      {
+        name: defaultDatabaseName
+      }
+    ])
+  : []
 
 var existingServerSegments = split(server.?resourceId ?? '', '/')
 var existingServerName = server.mode == 'existing' ? existingServerSegments[8] : ''
@@ -241,7 +264,6 @@ module managedFlexibleServer './flexibleServer.bicep' = if (server.mode == 'mana
     administratorTenantId: resolvedAdministratorTenantId
     availabilityZone: server.?availabilityZone
     backup: resolvedBackup
-    cmkIdentityResourceId: foundation.phaseA.postgreSqlCmkIdentityResourceId
     cmkKeyUri: foundation.phaseA.postgreSqlCmkKeyUri
     delegatedPrivateDnsZoneResourceId: foundation.phaseA.delegatedPrivateDnsZoneResourceId
     delegatedSubnetResourceId: foundation.phaseA.postgreSqlSubnetResourceId
@@ -249,6 +271,7 @@ module managedFlexibleServer './flexibleServer.bicep' = if (server.mode == 'mana
     highAvailability: resolvedHighAvailability
     location: resolvedLocation
     maintenanceWindow: server.?maintenanceWindow
+    serverIdentityResourceId: foundation.phaseA.postgreSqlServerIdentityResourceId
     sku: resolvedSku
     storage: resolvedStorage
     tags: resolvedTags
@@ -261,7 +284,7 @@ module managedFlexibleServerChildren './flexibleServerChildren.bicep' = if (serv
   params: {
     administrators: resolvedAdministrators
     configurations: server.?configurations ?? []
-    databases: server.?databases ?? []
+    databases: resolvedDatabases
     deletionProtection: server.?deletionProtection ?? 'CanNotDelete'
     diagnostics: server.?diagnostics
     flexibleServerName: resolvedServerName
@@ -295,9 +318,9 @@ var existingServerMatchesNetwork = server.mode == 'existing' ? toLower(string(ex
 var existingServerMatchesAuth = server.mode == 'existing' ? toLower(string(existingFlexibleServer.outputs.serverState.properties.authConfig.activeDirectoryAuth ?? '')) == toLower(server.expectedConfiguration.activeDirectoryAuth) && toLower(string(existingFlexibleServer.outputs.serverState.properties.authConfig.passwordAuth ?? '')) == toLower(server.expectedConfiguration.passwordAuth) && toLower(string(existingFlexibleServer.outputs.serverState.properties.authConfig.tenantId ?? '')) == toLower(server.expectedConfiguration.tenantId) : true
 var existingServerIdentityEntries = server.mode == 'existing' ? items(existingFlexibleServer.outputs.serverState.identity.?userAssignedIdentities ?? {}) : []
 var existingServerMatchesIdentityType = server.mode == 'existing' ? toLower(string(existingFlexibleServer.outputs.serverState.identity.?type ?? '')) == 'userassigned' : true
-var existingServerMatchesIdentitySet = server.mode == 'existing' ? length(existingServerIdentityEntries) == 1 && toLower(existingServerIdentityEntries[0].key) == toLower(server.expectedConfiguration.cmkIdentityResourceId) : true
+var existingServerMatchesIdentitySet = server.mode == 'existing' ? length(existingServerIdentityEntries) == 1 && toLower(existingServerIdentityEntries[0].key) == toLower(server.expectedConfiguration.serverIdentityResourceId) : true
 var existingServerMatchesEncryptionType = server.mode == 'existing' ? toLower(string(existingFlexibleServer.outputs.serverState.properties.dataEncryption.?type ?? '')) == 'azurekeyvault' : true
-var existingServerMatchesPrimaryCmk = server.mode == 'existing' ? toLower(string(existingFlexibleServer.outputs.serverState.properties.dataEncryption.primaryUserAssignedIdentityId ?? '')) == toLower(server.expectedConfiguration.cmkIdentityResourceId) && toLower(string(existingFlexibleServer.outputs.serverState.properties.dataEncryption.primaryKeyURI ?? '')) == toLower(server.expectedConfiguration.cmkKeyUri) : true
+var existingServerMatchesPrimaryCmk = server.mode == 'existing' ? toLower(string(existingFlexibleServer.outputs.serverState.properties.dataEncryption.primaryUserAssignedIdentityId ?? '')) == toLower(server.expectedConfiguration.serverIdentityResourceId) && toLower(string(existingFlexibleServer.outputs.serverState.properties.dataEncryption.primaryKeyURI ?? '')) == toLower(server.expectedConfiguration.cmkKeyUri) : true
 var existingServerHasNoGeoCmk = server.mode == 'existing' ? empty(existingFlexibleServer.outputs.serverState.properties.dataEncryption.?geoBackupUserAssignedIdentityId ?? '') && empty(existingFlexibleServer.outputs.serverState.properties.dataEncryption.?geoBackupKeyURI ?? '') : true
 var existingServerMatchesCmk = existingServerMatchesIdentityType && existingServerMatchesIdentitySet && existingServerMatchesEncryptionType && existingServerMatchesPrimaryCmk && existingServerHasNoGeoCmk
 var existingServerUsesCustomMaintenance = server.mode == 'existing' ? toLower(string(existingFlexibleServer.outputs.serverState.properties.maintenanceWindow.?customWindow ?? 'Disabled')) == 'enabled' : false
@@ -305,7 +328,7 @@ var existingServerMatchesCustomMaintenanceValues = server.mode == 'existing' && 
 var existingServerMatchesMaintenance = server.mode == 'existing' ? (server.expectedConfiguration.maintenanceWindow.mode == 'SystemManaged' ? !existingServerUsesCustomMaintenance : existingServerUsesCustomMaintenance && existingServerMatchesCustomMaintenanceValues) : true
 var existingServerMatchesFoundationSubnet = server.mode == 'existing' ? toLower(server.expectedConfiguration.delegatedSubnetResourceId) == toLower(foundation.phaseA.postgreSqlSubnetResourceId) : true
 var existingServerMatchesFoundationDns = server.mode == 'existing' ? toLower(server.expectedConfiguration.privateDnsZoneResourceId) == toLower(foundation.phaseA.delegatedPrivateDnsZoneResourceId) : true
-var existingServerMatchesFoundationIdentity = server.mode == 'existing' ? toLower(server.expectedConfiguration.cmkIdentityResourceId) == toLower(foundation.phaseA.postgreSqlCmkIdentityResourceId) : true
+var existingServerMatchesFoundationIdentity = server.mode == 'existing' ? toLower(server.expectedConfiguration.serverIdentityResourceId) == toLower(foundation.phaseA.postgreSqlServerIdentityResourceId) : true
 var existingServerMatchesFoundationKey = server.mode == 'existing' ? toLower(server.expectedConfiguration.cmkKeyUri) == toLower(foundation.phaseA.postgreSqlCmkKeyUri) : true
 var existingServerMatchesFoundation = existingServerMatchesFoundationSubnet && existingServerMatchesFoundationDns && existingServerMatchesFoundationIdentity && existingServerMatchesFoundationKey
 var existingServerCompatibility = existingServerMatchesLocation && existingServerMatchesVersion && existingServerMatchesAvailabilityZone && existingServerMatchesSku && existingServerMatchesStorage && existingServerMatchesBackup && existingServerMatchesHighAvailability && existingServerMatchesNetwork && existingServerMatchesAuth && existingServerMatchesCmk && existingServerMatchesMaintenance && existingServerMatchesFoundation

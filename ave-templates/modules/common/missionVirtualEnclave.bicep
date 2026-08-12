@@ -1,304 +1,126 @@
 targetScope = 'resourceGroup'
 
-type approvalPolicy = 'NotRequired' | 'Required'
-type diagnosticDestination = 'Both' | 'CommunityOnly' | 'EnclaveOnly'
-type governedServiceEnforcement = 'Disabled' | 'Enabled'
-type governedServiceOption = 'Allow' | 'Deny' | 'ExceptionOnly' | 'NotApplicable'
-type governedServiceId = 'AKS' | 'AppService' | 'AzureFirewalls' | 'ContainerRegistry' | 'CosmosDB' | 'DataConnectors' | 'Insights' | 'KeyVault' | 'Logic' | 'MicrosoftSQL' | 'Monitoring' | 'PostgreSQL' | 'PrivateDNSZones' | 'ServiceBus' | 'Storage'
-type maintenanceJustification = 'Governance' | 'Networking' | 'Off'
-type maintenanceMode = 'Advanced' | 'CanNotDelete' | 'General' | 'Off' | 'On'
-type missionIdentityType = 'None' | 'SystemAssigned' | 'SystemAssigned,UserAssigned' | 'UserAssigned'
-type monitoringDestinationType = 'CommunityWorkspace' | 'CustomWorkspace' | 'EnclaveWorkspace'
-type principalType = 'Group' | 'ServicePrincipal' | 'User'
-type toggleState = 'Disabled' | 'Enabled'
-
-@sealed()
-type mandatoryApprover = {
-  approverEntraId: string
-}
-
-@sealed()
-type requiredApprovalSettingConfiguration = {
-  approvalPolicy: 'Required'
-  @minLength(1)
-  mandatoryApprovers: mandatoryApprover[]
-  @minValue(1)
-  minimumApproversRequired: int
-}
-
-@sealed()
-type notRequiredApprovalSettingConfiguration = {
-  approvalPolicy: 'NotRequired'
-}
-
-@sealed()
-@discriminator('approvalPolicy')
-type approvalSettingConfiguration = requiredApprovalSettingConfiguration | notRequiredApprovalSettingConfiguration
-
-@sealed()
-type principal = {
-  id: string
-  type: principalType
-}
-
-@sealed()
-type roleAssignmentItem = {
-  principals: principal[]
-  roleDefinitionId: string
-  condition: string?
-}
-
-@sealed()
-type subnetConfiguration = {
-  subnetName: string
-  networkPrefixSize: int
-  subnetDelegation: string?
-}
-
-type customCidrNetworkConfiguration = {
-  mode: 'CustomCidr'
-  customCidrRange: string
-  subnetConfigurations: subnetConfiguration[]
-  allowSubnetCommunication: bool?
-  networkName: string?
-}
-
-@sealed()
-type managedSizeNetworkConfiguration = {
-  mode: 'ManagedSize'
-  networkSize: string
-  subnetConfigurations: subnetConfiguration[]
-  allowSubnetCommunication: bool?
-  networkName: string?
-}
-
-@sealed()
-@discriminator('mode')
-type missionVirtualNetworkConfiguration = customCidrNetworkConfiguration | managedSizeNetworkConfiguration
-
-@sealed()
-type governedServiceItem = {
-  enforcement: governedServiceEnforcement
-  option: governedServiceOption
-  policyAction: 'AuditOnly' | 'Enforce' | 'None'
-  serviceId: governedServiceId
-}
-
-@sealed()
-type maintenanceModeConfigurationModel = {
-  justification: maintenanceJustification
-  mode: maintenanceMode
-  principals: principal[]?
-}
-
-@sealed()
-type monitoringDestination = {
-  destinationType: monitoringDestinationType
-  customWorkspaceResourceId: string?
-  diagnosticSettingsName: string?
-}
-
-@sealed()
-type monitoringSettingsModel = {
-  diagnosticDestinations: monitoringDestination[]?
-  flowLogDestination: monitoringDestination?
-}
-
-@sealed()
-type enclaveDefaultSettingsModel = {
-  diagnosticDestination: diagnosticDestination
-}
-
-@sealed()
-type virtualEnclaveApprovalSettings = {
-  connectionCreation: approvalSettingConfiguration?
-  connectionUpdate: approvalSettingConfiguration?
-  enclaveEndpointUpdate: approvalSettingConfiguration?
-  enclaveMaintenanceMode: approvalSettingConfiguration?
-}
+// ──────────────────────────────────────────────────────────────────────────────
+// Single `Microsoft.Mission/virtualEnclaves@2026-03-01-preview` upsert surface.
+//
+// ARM PUT is idempotent, so creating a new enclave and additively updating an
+// existing one are the same operation: the caller resolves the complete
+// writable contract (carrying live values forward for an existing enclave,
+// supplying defaults for a new one) and this module issues exactly one PUT.
+//
+// Carry-forward inputs are intentionally loosely typed (`object`/`array`).
+// They are frequently populated from a live-state read whose values are only
+// known at deployment time, so compile-time shape assertions would be
+// meaningless. Customer-authored shapes are validated by the entry-point
+// template's parameter types instead.
+// ──────────────────────────────────────────────────────────────────────────────
 
 @description('Virtual enclave resource name.')
+@minLength(1)
 param name string
 
-@description('Azure region for the virtual enclave.')
+@description('Azure region for the virtual enclave. Carried forward from live state when the enclave already exists.')
+@minLength(1)
 param location string
-
-@description('Parent community resource ID.')
-param communityResourceId string
-
-@description('Strongly typed enclave virtual network configuration.')
-param networkConfiguration missionVirtualNetworkConfiguration
-
-@description('Managed identity type for the enclave.')
-param identityType missionIdentityType = 'SystemAssigned'
-
-@description('User-assigned identity resource IDs when identityType includes UserAssigned.')
-param userAssignedIdentityResourceIds string[] = []
 
 @description('Tags applied to the enclave.')
 param tags object = {}
 
-@description('Whether Mission should enable Bastion for the enclave.')
+@description('Managed identity type. The current Mission API contract supports only None; live values are carried forward verbatim.')
+param identityType string = 'None'
+
+@description('Parent community resource ID.')
+@minLength(1)
+param communityResourceId string
+
+@description('Normalized approval settings for all four Mission approval gates.')
+param approvalSettings object
+
+@description('Whether Mission enables Bastion for the enclave.')
 param bastionEnabled bool = true
 
-@description('Optional dedicated hub resource ID.')
+@description('Default diagnostic destination setting.')
+param diagnosticDestination string = 'Both'
+
+@description('Whether Mission permits subnet-to-subnet communication inside the enclave virtual network.')
+param allowSubnetCommunication bool = true
+
+@description('Custom CIDR range for the enclave virtual network. Supply for CustomCidr enclaves; leave empty to fall back to networkSize.')
+param customCidrRange string = ''
+
+@description('Managed network size for the enclave virtual network. Ignored when customCidrRange is supplied.')
+param networkSize string = ''
+
+@description('Enclave virtual network name. Carried forward from live state; leave empty to let Mission generate it.')
+param networkName string = ''
+
+@description('Complete resolved subnet contract (live subnets carried forward, unioned by name with this workload\'s requests).')
+param subnetConfigurations array
+
+@description('Complete resolved governed-service list.')
+param governedServiceList array = []
+
+@description('Complete resolved maintenance mode configuration, including the unioned principal set.')
+param maintenanceModeConfiguration object = {}
+
+@description('Monitoring settings carried forward from live state.')
+param monitoringSettings object = {}
+
+@description('Dedicated hub resource ID carried forward from live state.')
 param dedicatedHubResourceId string = ''
 
-@description('Optional default diagnostic destination setting.')
-param enclaveDefaultSettings enclaveDefaultSettingsModel = {
-  diagnosticDestination: 'Both'
-}
+@description('Complete resolved enclave-scope Mission RBAC assignments.')
+param enclaveRoleAssignments array = []
 
-@description('Optional approval settings.')
-param approvalSettings virtualEnclaveApprovalSettings?
-
-@description('Optional governed services.')
-param governedServiceList governedServiceItem[] = []
-
-@description('Optional maintenance mode configuration.')
-param maintenanceModeConfiguration maintenanceModeConfigurationModel?
-
-@description('Optional monitoring settings for diagnostics and flow logs.')
-param monitoringSettings monitoringSettingsModel?
+@description('Complete resolved workload-scope Mission RBAC assignments.')
+param workloadRoleAssignments array = []
 
 @description('Whether Azure RBAC inheritance remains enabled for workload resource groups.')
-param rbacInheritance toggleState = 'Disabled'
+param rbacInheritance string = 'Disabled'
 
 @description('Whether workload resources remain visible through standard Azure RBAC.')
-param workloadResourceVisibility toggleState = 'Disabled'
-
-@description('Enclave-scope Mission RBAC assignments.')
-param enclaveRoleAssignments roleAssignmentItem[] = []
-
-@description('Workload-scope Mission RBAC assignments.')
-param workloadRoleAssignments roleAssignmentItem[] = []
-
-var usesUserAssignedIdentity = contains([
-  'SystemAssigned,UserAssigned'
-  'UserAssigned'
-], identityType)
-
-var userAssignedIdentityMap = toObject(userAssignedIdentityResourceIds, identityResourceId => identityResourceId, _ => {})
-
-var subnetConfigurations = [for subnet in networkConfiguration.subnetConfigurations: union({
-  networkPrefixSize: subnet.networkPrefixSize
-  subnetName: subnet.subnetName
-}, empty(subnet.subnetDelegation ?? '') ? {} : {
-  subnetDelegation: subnet.subnetDelegation
-})]
-
-var connectionCreationApproval = approvalSettings.?connectionCreation
-var connectionUpdateApproval = approvalSettings.?connectionUpdate
-var enclaveEndpointUpdateApproval = approvalSettings.?enclaveEndpointUpdate
-var enclaveMaintenanceModeApproval = approvalSettings.?enclaveMaintenanceMode
-
-var normalizedConnectionCreationApproval = connectionCreationApproval == null
-  ? null
-  : (connectionCreationApproval!.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: connectionCreationApproval!.mandatoryApprovers
-          minimumApproversRequired: connectionCreationApproval!.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        })
-var normalizedConnectionUpdateApproval = connectionUpdateApproval == null
-  ? null
-  : (connectionUpdateApproval!.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: connectionUpdateApproval!.mandatoryApprovers
-          minimumApproversRequired: connectionUpdateApproval!.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        })
-var normalizedEnclaveEndpointUpdateApproval = enclaveEndpointUpdateApproval == null
-  ? null
-  : (enclaveEndpointUpdateApproval!.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: enclaveEndpointUpdateApproval!.mandatoryApprovers
-          minimumApproversRequired: enclaveEndpointUpdateApproval!.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        })
-var normalizedEnclaveMaintenanceModeApproval = enclaveMaintenanceModeApproval == null
-  ? null
-  : (enclaveMaintenanceModeApproval!.approvalPolicy == 'Required'
-      ? {
-          approvalPolicy: 'Required'
-          mandatoryApprovers: enclaveMaintenanceModeApproval!.mandatoryApprovers
-          minimumApproversRequired: enclaveMaintenanceModeApproval!.minimumApproversRequired
-        }
-      : {
-          approvalPolicy: 'NotRequired'
-          mandatoryApprovers: []
-          minimumApproversRequired: 0
-        })
-
-var normalizedApprovalSettings = approvalSettings == null ? null : union(
-  normalizedConnectionCreationApproval == null ? {} : {
-    connectionCreation: normalizedConnectionCreationApproval
-  },
-  normalizedConnectionUpdateApproval == null ? {} : {
-    connectionUpdate: normalizedConnectionUpdateApproval
-  },
-  normalizedEnclaveEndpointUpdateApproval == null ? {} : {
-    enclaveEndpointUpdate: normalizedEnclaveEndpointUpdateApproval
-  },
-  normalizedEnclaveMaintenanceModeApproval == null ? {} : {
-    enclaveMaintenanceMode: normalizedEnclaveMaintenanceModeApproval
-  }
-)
+param workloadResourceVisibility string = 'Disabled'
 
 var enclaveVirtualNetwork = union({
-  allowSubnetCommunication: networkConfiguration.allowSubnetCommunication ?? true
+  allowSubnetCommunication: allowSubnetCommunication
   subnetConfigurations: subnetConfigurations
-}, networkConfiguration.mode == 'CustomCidr' ? {
-  customCidrRange: networkConfiguration.customCidrRange
-  networkSize: 'custom'
-} : {
-  networkSize: networkConfiguration.networkSize
-}, empty(networkConfiguration.networkName ?? '') ? {} : {
-  networkName: networkConfiguration.networkName
+}, empty(customCidrRange)
+  ? (empty(networkSize) ? {} : {
+      networkSize: networkSize
+    })
+  : {
+      customCidrRange: customCidrRange
+      networkSize: 'custom'
+    }, empty(networkName) ? {} : {
+  networkName: networkName
 })
 
 resource virtualEnclaveResource 'Microsoft.Mission/virtualEnclaves@2026-03-01-preview' = {
   name: name
   location: location
-  identity: union({
+  identity: {
     type: identityType
-  }, usesUserAssignedIdentity ? {
-    userAssignedIdentities: userAssignedIdentityMap
-  } : {})
+  }
   tags: tags
   properties: union({
+    approvalSettings: approvalSettings
     bastionEnabled: bastionEnabled
     communityResourceId: communityResourceId
-    enclaveDefaultSettings: enclaveDefaultSettings
+    enclaveDefaultSettings: {
+      diagnosticDestination: diagnosticDestination
+    }
     enclaveVirtualNetwork: enclaveVirtualNetwork
     rbacInheritance: rbacInheritance
     workloadResourceVisibility: workloadResourceVisibility
   }, empty(dedicatedHubResourceId) ? {} : {
     dedicatedHubResourceId: dedicatedHubResourceId
-  }, normalizedApprovalSettings == null ? {} : {
-    approvalSettings: normalizedApprovalSettings
   }, length(enclaveRoleAssignments) == 0 ? {} : {
     enclaveRoleAssignments: enclaveRoleAssignments
   }, length(governedServiceList) == 0 ? {} : {
     governedServiceList: governedServiceList
-  }, maintenanceModeConfiguration == null ? {} : {
+  }, empty(maintenanceModeConfiguration) ? {} : {
     maintenanceModeConfiguration: maintenanceModeConfiguration
-  }, monitoringSettings == null ? {} : {
+  }, empty(monitoringSettings) ? {} : {
     monitoringSettings: monitoringSettings
   }, length(workloadRoleAssignments) == 0 ? {} : {
     workloadRoleAssignments: workloadRoleAssignments
