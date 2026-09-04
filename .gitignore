@@ -39,7 +39,8 @@ package-lock.json
 *.7z
 
 # IDE / Editor
-.vscode/
+.vscode/*
+!.vscode/mcp.json
 .vs/
 *.suo
 *.user
