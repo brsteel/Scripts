@@ -1,0 +1,265 @@
+targetScope = 'subscription'
+
+type deploymentContextType = {
+  location: string?
+  @minLength(1)
+  @maxLength(5)
+  instance: string?
+  tags: object?
+}
+
+type phaseAType = {
+  contractVersion: '3.0'
+  communityResourceId: string
+  delegatedPrivateDnsZoneResourceId: string
+  geoCmk: {
+    mode: 'absent'
+  }
+  location: string
+  postgreSqlServerIdentityResourceId: string
+  postgreSqlCmkKeyUri: string
+  postgreSqlDnsSuffix: string
+  postgreSqlPrivateLinkZoneName: string
+  postgreSqlSubnetResourceId: string
+  targetSubscriptionId: string
+  workloadResourceGroupId: string
+  workloadResourceId: string
+}
+
+type foundationType = {
+  contractVersion: '3.0'
+  communityEndpointResourceIds: string[]
+  enclaveConnectionResourceIds: string[]
+  phaseA: phaseAType
+}
+
+type postgreSqlSkuType = {
+  @minLength(1)
+  name: string
+  tier: 'Burstable' | 'GeneralPurpose' | 'MemoryOptimized'?
+}
+
+type postgreSqlStorageType = {
+  @minValue(32)
+  storageSizeGB: int?
+  type: 'Premium_LRS' | 'PremiumV2_LRS'?
+  tier: string?
+  @minValue(1)
+  iops: int?
+  @minValue(1)
+  throughput: int?
+  autoGrow: 'Enabled' | 'Disabled'?
+}
+
+type expectedPostgreSqlSkuType = {
+  @minLength(1)
+  name: string
+  tier: 'Burstable' | 'GeneralPurpose' | 'MemoryOptimized'
+}
+
+type expectedPostgreSqlStorageType = {
+  @minValue(32)
+  storageSizeGB: int
+  type: 'Premium_LRS' | 'PremiumV2_LRS'
+  tier: string?
+  @minValue(1)
+  iops: int?
+  @minValue(1)
+  throughput: int?
+  autoGrow: 'Enabled' | 'Disabled'
+}
+
+type expectedPostgreSqlBackupType = {
+  @minValue(7)
+  @maxValue(35)
+  retentionDays: int
+  geoRedundancy: 'Disabled'
+}
+
+type postgreSqlBackupType = {
+  @minValue(7)
+  @maxValue(35)
+  retentionDays: int?
+  geoRedundancy: 'Disabled'?
+}
+
+type postgreSqlHighAvailabilityType = {
+  mode: 'ZoneRedundant' | 'SameZone' | 'Disabled'
+  standbyAvailabilityZone: string?
+}
+
+type postgreSqlMaintenanceWindowType = {
+  @minValue(0)
+  @maxValue(6)
+  dayOfWeek: int
+  @minValue(0)
+  @maxValue(23)
+  startHour: int
+  @minValue(0)
+  @maxValue(59)
+  startMinute: int
+}
+
+type postgreSqlAdministratorType = {
+  @minLength(1)
+  objectId: string
+  @minLength(1)
+  principalName: string
+  principalType: 'User' | 'Group' | 'ServicePrincipal'
+  @minLength(1)
+  tenantId: string
+}
+
+type postgreSqlDatabaseType = {
+  @minLength(1)
+  name: string
+  charset: string?
+  collation: string?
+}
+
+type postgreSqlConfigurationType = {
+  @minLength(1)
+  name: string
+  value: string
+}
+
+type diagnosticConfigurationType = {
+  @minLength(1)
+  workspaceResourceId: string
+  settingName: string?
+  logCategories: string[]
+  metricCategories: string[]
+}
+
+type systemManagedMaintenanceExpectationType = {
+  mode: 'SystemManaged'
+}
+
+type customMaintenanceExpectationType = {
+  mode: 'Custom'
+  @minValue(0)
+  @maxValue(6)
+  dayOfWeek: int
+  @minValue(0)
+  @maxValue(23)
+  startHour: int
+  @minValue(0)
+  @maxValue(59)
+  startMinute: int
+}
+
+@discriminator('mode')
+type maintenanceExpectationType = systemManagedMaintenanceExpectationType | customMaintenanceExpectationType
+
+type absentDiagnosticsExpectationType = {
+  mode: 'Absent'
+}
+
+type configuredDiagnosticsExpectationType = {
+  mode: 'Configured'
+  workspaceResourceId: string
+  settingName: string
+  logCategories: string[]
+  metricCategories: string[]
+}
+
+@discriminator('mode')
+type diagnosticsExpectationType = absentDiagnosticsExpectationType | configuredDiagnosticsExpectationType
+
+type managedFlexibleServerType = {
+  mode: 'managed'
+  name: string?
+  location: string?
+  @minLength(1)
+  version: string?
+  availabilityZone: string?
+  sku: postgreSqlSkuType?
+  storage: postgreSqlStorageType?
+  backup: postgreSqlBackupType?
+  highAvailability: postgreSqlHighAvailabilityType?
+  maintenanceWindow: postgreSqlMaintenanceWindowType?
+  @minLength(1)
+  administrators: postgreSqlAdministratorType[]
+  databases: postgreSqlDatabaseType[]?
+  configurations: postgreSqlConfigurationType[]?
+  diagnostics: diagnosticConfigurationType?
+  deletionProtection: 'CanNotDelete' | 'None'?
+}
+
+type expectedFlexibleServerType = {
+  location: string
+  version: string
+  availabilityZone: string?
+  sku: expectedPostgreSqlSkuType
+  storage: expectedPostgreSqlStorageType
+  backup: expectedPostgreSqlBackupType
+  highAvailability: postgreSqlHighAvailabilityType
+  maintenanceWindow: maintenanceExpectationType
+  delegatedSubnetResourceId: string
+  privateDnsZoneResourceId: string
+  activeDirectoryAuth: 'Enabled'
+  passwordAuth: 'Disabled'
+  tenantId: string
+  serverIdentityResourceId: string
+  cmkKeyUri: string
+}
+
+type existingFlexibleServerType = {
+  mode: 'existing'
+  @minLength(1)
+  resourceId: string
+  expectedConfiguration: expectedFlexibleServerType
+}
+
+@discriminator('mode')
+type flexibleServerDefinitionType = managedFlexibleServerType | existingFlexibleServerType
+
+@description('Deployment defaults. Location omission resolves to the Phase A foundation location; instance omission resolves to 001.')
+param deploymentContext deploymentContextType = {}
+
+@description('Frozen Phase B foundation handoff. Network and CMK resources are consumed as inputs and are never mutated by this workload template.')
+param foundation foundationType
+
+@description('Managed-or-existing PostgreSQL Flexible Server definition.')
+param server flexibleServerDefinitionType
+
+var workloadResourceGroupSegments = split(foundation.phaseA.workloadResourceGroupId, '/')
+var workloadSubscriptionId = workloadResourceGroupSegments[2]
+var workloadResourceGroupName = workloadResourceGroupSegments[4]
+var cloudDomain = replace(replace(environment().resourceManager, 'https://management.', ''), '/', '')
+var derivedPostgreSqlDnsSuffix = 'postgres.database.${cloudDomain}'
+var derivedPostgreSqlPrivateLinkZoneName = 'privatelink.${derivedPostgreSqlDnsSuffix}'
+var foundationCloudIsValid = toLower(foundation.phaseA.postgreSqlDnsSuffix) == toLower(derivedPostgreSqlDnsSuffix) && toLower(foundation.phaseA.postgreSqlPrivateLinkZoneName) == toLower(derivedPostgreSqlPrivateLinkZoneName)
+var existingServerSegments = split(server.mode == 'existing' ? server.resourceId : '////////', '/')
+var existingServerIdHasValidShape = server.mode == 'managed' || (length(existingServerSegments) == 9 && toLower(existingServerSegments[1]) == 'subscriptions' && toLower(existingServerSegments[3]) == 'resourcegroups' && toLower(existingServerSegments[5]) == 'providers' && toLower(existingServerSegments[6]) == 'microsoft.dbforpostgresql' && toLower(existingServerSegments[7]) == 'flexibleservers')
+var existingServerScopeIsValid = server.mode == 'managed' || (existingServerIdHasValidShape && toLower(server.resourceId) == toLower('${foundation.phaseA.workloadResourceGroupId}/providers/Microsoft.DBforPostgreSQL/flexibleServers/${existingServerSegments[8]}'))
+
+module workloadDeployment './modules/flexibleServerInResourceGroup.bicep' = if (foundationCloudIsValid && existingServerScopeIsValid) {
+  name: 'postgresqlWorkload'
+  scope: resourceGroup(workloadSubscriptionId, workloadResourceGroupName)
+  params: {
+    deploymentContext: deploymentContext
+    foundation: foundation
+    server: server
+  }
+}
+
+module foundationCloudGate './modules/requiredTextSubscriptionGate.bicep' = {
+  name: 'postgresqlFoundationCloudGate'
+  params: {
+    requiredText: foundationCloudIsValid && existingServerScopeIsValid ? 'compatible' : ''
+  }
+}
+
+output contractVersion string = '3.0'
+output flexibleServerResourceId string = workloadDeployment.outputs.flexibleServerResourceId
+output flexibleServerName string = workloadDeployment.outputs.flexibleServerName
+output fullyQualifiedDomainName string = workloadDeployment.outputs.fullyQualifiedDomainName
+output workloadResourceId string = foundation.phaseA.workloadResourceId
+output workloadResourceGroupId string = foundation.phaseA.workloadResourceGroupId
+output postgreSqlSubnetResourceId string = foundation.phaseA.postgreSqlSubnetResourceId
+output delegatedPrivateDnsZoneResourceId string = foundation.phaseA.delegatedPrivateDnsZoneResourceId
+output serverOwnership 'managed' | 'existing' = workloadDeployment.outputs.serverOwnership
+output effectiveSku postgreSqlSkuType = workloadDeployment.outputs.effectiveSku
+output effectiveHighAvailability postgreSqlHighAvailabilityType = workloadDeployment.outputs.effectiveHighAvailability
+output effectiveBackup postgreSqlBackupType = workloadDeployment.outputs.effectiveBackup
