@@ -830,11 +830,27 @@ var serverIdentityGraphPermissionGrantMode = foundation.serverIdentity.mode == '
 // Graph planes). If this module's only dependency were the identity module
 // itself, the Graph appRoleAssignedTo call could race that replication and
 // fail with "Request_BadRequest: Not a valid reference update." Depending on
-// keyVaultModule and keyModule as well defers this call until after Key
-// Vault and (especially) RSA-HSM CMK key provisioning have completed, which
-// reliably consumes enough wall-clock time for the replication to catch up.
-// This is a scheduling-only dependency: neither keyVaultModule nor keyModule
-// has any data dependency on the server identity or this Graph grant.
+// keyVaultModule and keyModule defers this call until after Key Vault and
+// (especially) RSA-HSM CMK key provisioning have completed, which reliably
+// consumes enough wall-clock time for the replication to catch up when the
+// Key Vault itself is being newly created.
+//
+// However, keyVaultModule and keyModule are both conditional on 'managed'
+// mode: when foundation.keyVault.mode is 'existing' (reusing an already
+// created Key Vault, e.g. the enclave's own Mission-managed vault),
+// keyVaultModule never runs at all, and keyModule only adds a key to an
+// already-existing vault — a much faster operation than provisioning a whole
+// new Key Vault. That leaves too little elapsed wall-clock time for Graph
+// replication, and the race resurfaces specifically in the existing-Key-Vault
+// path (confirmed by live testing). keyVaultPrivateEndpointModule is
+// unconditional in both the managed and existing Key Vault paths — a private
+// endpoint (NIC, private link connection, DNS zone group) always has to be
+// created for the workload's private connectivity to the Key Vault, and that
+// is genuine network-resource provisioning that reliably takes real time
+// regardless of which Key Vault mode is in effect. Depending on it here
+// closes the gap the keyVaultModule/keyModule-only deferral left open. This
+// is a scheduling-only dependency: keyVaultPrivateEndpointModule has no data
+// dependency on the server identity or this Graph grant.
 module serverIdentityGraphGrantModule './modules/serverIdentityGraphGrant.bicep' = if (foundation.serverIdentity.mode == 'managed' && serverIdentityGraphPermissionGrantMode == 'Managed') {
   name: 'postgresqlServerIdentityGraphGrant'
   scope: resourceGroup(targetSubscriptionId, serverIdentityResourceGroupName)
@@ -845,6 +861,7 @@ module serverIdentityGraphGrantModule './modules/serverIdentityGraphGrant.bicep'
     serverIdentityModule
     keyVaultModule
     keyModule
+    keyVaultPrivateEndpointModule
   ]
 }
 
@@ -1119,11 +1136,23 @@ module privateEndpointPlacementGate './modules/requiredTextSubscriptionGate.bice
   ]
 }
 
+// Link names are keyed by the (zone, VNet) pair rather than by workload, so
+// this deployment converges to the same virtual-network-link resource
+// whether it is the first workload to link a zone to this VNet or a later
+// workload sharing an existing enclave's zone and VNet. Azure permits only
+// one link between a given zone and a given VNet regardless of the link
+// resource's name; keying the name by workload identity meant a second
+// workload sharing the same zone+VNet pair collided on that one-link-per-pair
+// rule while Bicep still treated it as creating a distinct, unrelated
+// resource.
+var delegatedZoneLinkName = 'link-${take(uniqueString(delegatedZoneName, effectiveEnclaveVnetId), 13)}'
+var keyVaultZoneLinkName = 'link-${take(uniqueString(keyVaultZoneName, effectiveEnclaveVnetId), 13)}'
+
 module delegatedDnsLinkModule '../../modules/common/privateDnsZoneVirtualNetworkLink.bicep' = {
   name: 'postgresqlDelegatedDnsLink'
   scope: resourceGroup(delegatedZoneSubscriptionId, delegatedZoneResourceGroupName)
   params: {
-    linkName: 'link-${phaseToken}'
+    linkName: delegatedZoneLinkName
     tags: tags
     virtualNetworkResourceId: effectiveEnclaveVnetId
     zoneName: delegatedZoneName
@@ -1139,7 +1168,7 @@ module keyVaultDnsLinkModule '../../modules/common/privateDnsZoneVirtualNetworkL
   name: 'postgresqlKeyVaultDnsLink'
   scope: resourceGroup(keyVaultZoneSubscriptionId, keyVaultZoneResourceGroupName)
   params: {
-    linkName: 'link-${phaseToken}'
+    linkName: keyVaultZoneLinkName
     tags: tags
     virtualNetworkResourceId: effectiveEnclaveVnetId
     zoneName: keyVaultZoneName

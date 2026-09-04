@@ -1,0 +1,87 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "deploymentContext": {
+      "value": {
+        "subscriptionId": "afb59830-1fc9-44c9-bba3-04f657483578",
+        "location": "usgovvirginia",
+        "tags": {
+          "Environment": "dev",
+          "Workload": "postgresql",
+          "Owner": "platform"
+        }
+      }
+    },
+    "enclaveConfiguration": {
+      "value": {
+        "name": "ve-postgresql-usgovva-001",
+        "resourceGroupName": "rg-ve-postgresql-enclave-usgv-001",
+        "communityResourceId": "/subscriptions/afb59830-1fc9-44c9-bba3-04f657483578/resourceGroups/ave-community-rg/providers/Microsoft.Mission/communities/avecommunity",
+        "networkSize": "custom",
+        "customCidrRange": "10.80.0.0/16",
+        "subnetDefinitions": [
+          {
+            "name": "postgresql",
+            "subnetAddressPrefix": "10.80.1.0/24",
+            "subnetType": "Compute",
+            "subnetDelegation": "Microsoft.DBforPostgreSQL/flexibleServers"
+          },
+          {
+            "name": "privateendpoints",
+            "subnetAddressPrefix": "10.80.2.0/24",
+            "subnetType": "Compute"
+          }
+        ],
+        "enableBastion": true,
+        "allowSubnetCommunication": true,
+        "applyGovernedServicePolicies": true,
+        "maintenanceMode": "Off"
+      }
+    },
+    "connectivityConfiguration": {
+      "value": {
+        "enableConnectivity": false,
+        "connectionSourceCidr": "10.80.1.0/24"
+      }
+    },
+    "workloadConfiguration": {
+      "value": {
+        "name": "postgresql-workload",
+        "resourceGroupName": "rg-ve-postgresql-workload-usgv-001"
+      }
+    },
+    "foundationConfiguration": {
+      "value": {
+        "enableFoundationResources": true,
+        "workloadName": "postgresql-workload",
+        "workloadResourceGroupName": "rg-ve-postgresql-workload-usgv-001",
+        "keyVaultPrivateEndpointSubnetName": "privateendpoints",
+        "createKeyVaultPrivateDnsZone": true,
+        "keyVaultPrivateDnsZoneResourceGroupName": "rg-ve-postgresql-enclave-usgv-001",
+        "linkKeyVaultPrivateDnsZoneToEnclaveVnet": true
+      }
+    },
+    "postgresConfiguration": {
+      "value": {
+        "serverName": "pgflexusgv001",
+        "delegatedSubnetResourceId": "/subscriptions/afb59830-1fc9-44c9-bba3-04f657483578/resourceGroups/ve-postgresql-usgovva-001-HostedResources-o20sb0dgkkh0/providers/Microsoft.Network/virtualNetworks/ve-postgresql-usgovva-001-vnet/subnets/postgresql",
+        "createPrivateDnsZone": true,
+        "privateDnsZoneResourceGroupName": "rg-ve-postgresql-enclave-usgv-001",
+        "privateDnsZoneName": "privatelink.postgres.database.azure.com",
+        "administratorLogin": "pgadminuser",
+        "administratorLoginPassword": "<set-secure-password>",
+        "postgresVersion": "16",
+        "skuName": "Standard_D2ds_v4",
+        "skuTier": "GeneralPurpose",
+        "storageSizeGB": 128,
+        "backupRetentionDays": 7,
+        "geoRedundantBackup": "Disabled",
+        "highAvailabilityMode": "Disabled"
+      }
+    },
+    "enableTelemetry": {
+      "value": true
+    }
+  }
+}
